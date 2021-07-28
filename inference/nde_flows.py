@@ -1,7 +1,8 @@
 from nflows import distributions, flows, transforms, utils
 import torch
 from torch.nn import functional as F
-import nflows.nn.nets as nn_
+# import nflows.nn.nets as nn_
+from inference.resnet import ResidualNet
 import time
 
 
@@ -95,7 +96,7 @@ def create_base_transform(i,
             mask=utils.create_alternating_binary_mask(
                 param_dim, even=(i % 2 == 0)),
             transform_net_create_fn=(lambda in_features, out_features:
-                                    nn_.ResidualNet(
+                                    ResidualNet(
                                         in_features=in_features,
                                         out_features=out_features,
                                         hidden_features=hidden_dim,
@@ -225,7 +226,7 @@ def anneal_schedule(epoch, quiet=False):
 
 
 def train_epoch(flow, train_loader, optimizer, epoch,
-                device=None,
+                device=None, transformer=None,
                 output_freq=50, add_noise=True, annealing=False):
     """Train model for one epoch.
 
@@ -294,7 +295,11 @@ def train_epoch(flow, train_loader, optimizer, epoch,
             y = h
 
         # Compute log prob
-        loss = - flow.log_prob(x, context=y)
+        if transformer:
+            loss = - flow.log_prob(x, context=transformer['encoder'](y.reshape(-1, 4, 100), transformer['valid_lens']).reshape(-1,400))
+        else:
+            loss = - flow.log_prob(x, context=y)
+        
 
         if anneal_exponent > 0.0:
             anneal_factor = (snr - snr_threshold) ** anneal_exponent
@@ -330,7 +335,7 @@ def train_epoch(flow, train_loader, optimizer, epoch,
     return train_loss
 
 
-def test_epoch(flow, test_loader, epoch, device=None, add_noise=True,
+def test_epoch(flow, test_loader, epoch, device=None, transformer=None, add_noise=True,
                annealing=False):
     """Calculate test loss for one epoch.
 
@@ -357,6 +362,7 @@ def test_epoch(flow, test_loader, epoch, device=None, add_noise=True,
 
     with torch.no_grad():
         flow.eval()
+        
         test_loss = 0.0
         total_weight = 0.0
         for h, x, w, snr in test_loader:
@@ -374,7 +380,12 @@ def test_epoch(flow, test_loader, epoch, device=None, add_noise=True,
                 y = h
 
             # Compute log prob
-            loss = - flow.log_prob(x, context=y)
+            if transformer:
+                transformer['encoder'].eval()
+                loss = - flow.log_prob(x, context=transformer['encoder'](y.reshape(-1, 4, 100), transformer['valid_lens']).reshape(-1,400))
+            else:
+                loss = - flow.log_prob(x, context=y)
+
 
             if anneal_exponent > 0.0:
                 anneal_factor = (snr - snr_threshold) ** anneal_exponent
@@ -395,7 +406,7 @@ def test_epoch(flow, test_loader, epoch, device=None, add_noise=True,
         return test_loss
 
 
-def obtain_samples(flow, y, nsamples, device=None, batch_size=512):
+def obtain_samples(flow, y, nsamples, device=None, transformer=None, batch_size=512):
     """Draw samples from the posterior.
 
     Arguments:
@@ -418,8 +429,12 @@ def obtain_samples(flow, y, nsamples, device=None, batch_size=512):
 
         num_batches = nsamples // batch_size
         num_leftover = nsamples % batch_size
-
+        if transformer:
+            transformer['encoder'].eval()
+            y = transformer['encoder'](y.reshape(-1, 4, 100), transformer['valid_lens']).reshape(-1,400)
         samples = [flow.sample(batch_size, y) for _ in range(num_batches)]
+
+        
         if num_leftover > 0:
             samples.append(flow.sample(num_leftover, y))
 

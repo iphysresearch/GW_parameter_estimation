@@ -1,3 +1,4 @@
+from inference import transformer
 import os
 import argparse
 from torch.utils.data import DataLoader
@@ -89,9 +90,9 @@ class PosteriorModel(object):
             self.wfd.Nrb = self.wfd.basis.n
 
         self.wfd.mixed_alpha = mixed_alpha
-        print("Sampling {} sets of parameters \
-                from {} prior.".format(nsample,
-                                       self.wfd.sampling_from))
+        print("Sampling {} sets of parameters"
+              "from {} prior.".format(nsample,
+                                      self.wfd.sampling_from))
         if self.wfd.sampling_from == 'posterior':
             # loading bilby posterior as training dist.
             self.wfd._load_posterior(self.wfd.event,)
@@ -112,8 +113,8 @@ class PosteriorModel(object):
             # split dataset and _compute_parameter_statistics
             self.wfd.init_training()
         elif self.wfd.sampling_from == 'mixed':
-            assert mixed_alpha, "You need specify a 'mixed_alpha' value \
-                                 for 'mixed'"
+            assert mixed_alpha, "You need specify a 'mixed_alpha' value " \
+                                 "for 'mixed'"
             self.wfd._load_posterior(self.wfd.event,)
             parameters_posterior = self.wfd._sample_prior_posterior(nsample)\
                                            .astype(np.float32)
@@ -132,8 +133,8 @@ class PosteriorModel(object):
                 len(self.wfd.train_selection)
             )
         elif self.wfd.sampling_from == "all_event_mixed":
-            assert mixed_alpha, "You need specify a 'mixed_alpha' value \
-                                 for 'all_event_mixed'"
+            assert mixed_alpha, "You need specify a 'mixed_alpha' value "
+            "for 'all_event_mixed'"
             self.wfd._load_all_posterior()
             parameters_posterior = self.wfd._sample_prior_posterior(nsample)\
                                            .astype(np.float32)
@@ -152,8 +153,8 @@ class PosteriorModel(object):
                 len(self.wfd.train_selection)
             )
         else:
-            raise NameError('You need specify either "uniform", \
-                            "posterior" or "mixed" for `sampling_from`.')
+            raise NameError('You need specify either "uniform",'
+                            '"posterior" or "mixed" for `sampling_from`.')
         # self.wfd.load_train(self.data_dir) # discard
 
         # Set up relative whitening
@@ -339,6 +340,7 @@ class PosteriorModel(object):
     def initialize_training(self, lr=0.0001,
                             lr_annealing=True, anneal_method='step',
                             total_epochs=None,
+                            transformer=None,
                             steplr_step_size=80, steplr_gamma=0.5,
                             flow_lr=None):
         """Set up the optimizer and scheduler."""
@@ -360,6 +362,9 @@ class PosteriorModel(object):
                     param_list.append({'params': flow.parameters(),
                                        'lr': flow_lr})
             self.optimizer = torch.optim.Adam(param_list, lr=lr)
+        elif transformer:
+            print('Transformer!!')
+            self.optimizer = torch.optim.Adam(list(self.model.parameters()) + list(transformer['encoder'].parameters()), lr=lr)
         else:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -413,6 +418,8 @@ class PosteriorModel(object):
             'epoch': self.epoch,
             'detectors': self.detectors
         }
+        if self.transformer:
+            dict['model_transformer_state_dict'] = self.transformer['encoder'].state_dict()
 
         if self.scheduler is not None:
             dict['scheduler_state_dict'] = self.scheduler.state_dict()
@@ -474,6 +481,7 @@ class PosteriorModel(object):
         else:
             flow_lr = None
         self.initialize_training(lr_annealing=scheduler_present_in_checkpoint,
+                                 transformer=self.transformer,
                                  flow_lr=flow_lr)
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if scheduler_present_in_checkpoint:
@@ -506,6 +514,7 @@ class PosteriorModel(object):
 
     def train(self, epochs,
               output_freq=50, kl_annealing=True,
+              transformer=None,
               snr_annealing=False):
         """Train the model.
 
@@ -514,7 +523,6 @@ class PosteriorModel(object):
                 output_freq:    how many iterations between outputs
                 kl_annealing:  for cvae, whether to anneal the kl loss
         """
-
         add_noise = not self.wfd.extrinsic_at_train
         epoch_minimum_test_loss = 1
         for epoch in range(self.epoch, self.epoch + epochs):
@@ -546,6 +554,7 @@ class PosteriorModel(object):
                     self.optimizer,
                     epoch,
                     self.device,
+                    self.transformer,
                     output_freq,
                     add_noise,
                     snr_annealing)
@@ -554,6 +563,7 @@ class PosteriorModel(object):
                     self.test_loader,
                     epoch,
                     self.device,
+                    self.transformer,
                     add_noise,
                     snr_annealing)
 
@@ -741,14 +751,9 @@ class PosteriorModel(object):
         }
         event = event.split('_')[0]
         # Load bilby samples
-        try:
-            df = pd.read_csv('../bilby_runs/downsampled_posterior_samples_v1.0.0\
-                            /{}_downsampled_posterior_samples.dat'
-                             .format(event), sep=' ')
-        except FileNotFoundError:
-            df = pd.read_csv('./downsampled_posterior_samples_v1.0.0/\
-                            {}_downsampled_posterior_samples.dat'
-                             .format(event), sep=' ')
+        df = pd.read_csv('./downsampled_posterior_samples_v1.0.0/'
+                         '{}_downsampled_posterior_samples.dat'
+                         .format(event), sep=' ')
         bilby_samples = df.dropna()[['mass_1', 'mass_2', 'phase',
                                      'geocent_time', 'luminosity_distance',
                                      'a_1', 'a_2', 'tilt_1', 'tilt_2',
@@ -790,7 +795,8 @@ class PosteriorModel(object):
         x_samples = nde_flows.obtain_samples(self.model,
                                              self.all_event_strain[event],
                                              self.nsamples_target_event,
-                                             self.device)
+                                             self.device,
+                                             self.transformer)
         x_samples = x_samples.cpu()
         # Rescale parameters.
         # The neural network preferred mean zero and variance one.
@@ -931,14 +937,14 @@ class PosteriorModel(object):
 
         if self.model_type == 'maf':
             x_samples = a_flows.obtain_samples(
-                self.model, self.base_dist, y, nsamples, self.device)
+                self.model, self.base_dist, y, nsamples, self.device, self.transformer)
         elif self.model_type == 'nde':
             x_samples = nde_flows.obtain_samples(
-                self.model, y, nsamples, self.device
+                self.model, y, nsamples, self.device, self.transformer
             )
         elif self.model_type == 'cvae':
             x_samples = cvae.obtain_samples(
-                self.model, self.base_dist, y, nsamples, self.device)
+                self.model, self.base_dist, y, nsamples, self.device, self.transformer)
 
         x_samples = x_samples.cpu()
 
@@ -1276,6 +1282,22 @@ def parse_args():
 def main():
     args = parse_args()
     print(args)
+    from .transformer import TransformerEncoder
+    self.transformer={}
+    self.transformer['encoder'] = TransformerEncoder(vocab_size=200, 
+                                                    key_size=100, 
+                                                    query_size=100, 
+                                                    value_size=100, 
+                                                    num_hiddens=100, 
+                                                    norm_shape=[4, 100], 
+                                                    ffn_num_input=100, 
+                                                    ffn_num_hiddens=48, 
+                                                    num_heads=2, 
+                                                    num_layers=2,
+                                                    dropout=0.5,
+                                                noEmbedding=True)
+    self.transformer['encoder'].train()
+    self.transformer['valid_lens'] = torch.tensor([100,]*32)
 
     if args.mode == 'train':
 
@@ -1528,6 +1550,7 @@ def main():
                                    lr_annealing=args.lr_annealing,
                                    anneal_method=args.lr_anneal_method,
                                    total_epochs=args.epochs,
+                                   transformer=transformer,
                                    # steplr=args.steplr,
                                    steplr_step_size=args.steplr_step_size,
                                    steplr_gamma=args.steplr_gamma,
@@ -1560,6 +1583,7 @@ def main():
             try:
                 pm.train(args.transfer_epochs,
                          output_freq=args.output_freq,
+                         transformer=self.transformer,
                          kl_annealing=args.kl_annealing,
                          snr_annealing=args.snr_annealing)
             except KeyboardInterrupt as e:
@@ -1596,6 +1620,7 @@ def main():
                                        lr_annealing=args.lr_annealing,
                                        anneal_method=args.lr_anneal_method,
                                        total_epochs=args.transfer_epochs,
+                                       transformer=self.transformer,
                                        # steplr=args.steplr,
                                        steplr_step_size=args.steplr_step_size,
                                        steplr_gamma=args.steplr_gamma,
@@ -1604,6 +1629,7 @@ def main():
                     pm.train(args.transfer_epochs,
                              output_freq=args.output_freq,
                              kl_annealing=args.kl_annealing,
+                             transformer=self.transformer,
                              snr_annealing=args.snr_annealing)
                 except KeyboardInterrupt as e:
                     print(e)
@@ -1627,6 +1653,7 @@ def main():
             try:
                 pm.train(args.epochs,
                          output_freq=args.output_freq,
+                         transformer=self.transformer,
                          kl_annealing=args.kl_annealing,
                          snr_annealing=args.snr_annealing)
             except KeyboardInterrupt as e:
