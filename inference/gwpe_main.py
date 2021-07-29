@@ -364,7 +364,8 @@ class PosteriorModel(object):
             self.optimizer = torch.optim.Adam(param_list, lr=lr)
         elif transformer:
             print('Transformer!!')
-            self.optimizer = torch.optim.Adam(list(self.model.parameters()) + list(transformer['encoder'].parameters()), lr=lr)
+            self.transformer = transformer
+            self.optimizer = torch.optim.Adam(list(self.model.parameters()) + list(self.transformer['encoder'].parameters()), lr=lr)
         else:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -1283,8 +1284,8 @@ def main():
     args = parse_args()
     print(args)
     from .transformer import TransformerEncoder
-    self.transformer={}
-    self.transformer['encoder'] = TransformerEncoder(vocab_size=200, 
+    transformer={}
+    transformer['encoder'] = TransformerEncoder(vocab_size=200, 
                                                     key_size=100, 
                                                     query_size=100, 
                                                     value_size=100, 
@@ -1296,8 +1297,9 @@ def main():
                                                     num_layers=2,
                                                     dropout=0.5,
                                                 noEmbedding=True)
-    self.transformer['encoder'].train()
-    self.transformer['valid_lens'] = torch.tensor([100,]*32)
+    transformer['encoder'].to(torch.device('cuda'))
+    transformer['encoder'].train()
+    transformer['valid_lens'] = torch.tensor([100,]*args.batch_size).to(torch.device('cuda'), non_blocking=True)
 
     if args.mode == 'train':
 
@@ -1583,7 +1585,7 @@ def main():
             try:
                 pm.train(args.transfer_epochs,
                          output_freq=args.output_freq,
-                         transformer=self.transformer,
+                         transformer=pm.transformer,
                          kl_annealing=args.kl_annealing,
                          snr_annealing=args.snr_annealing)
             except KeyboardInterrupt as e:
@@ -1620,7 +1622,7 @@ def main():
                                        lr_annealing=args.lr_annealing,
                                        anneal_method=args.lr_anneal_method,
                                        total_epochs=args.transfer_epochs,
-                                       transformer=self.transformer,
+                                       transformer=pm.transformer,
                                        # steplr=args.steplr,
                                        steplr_step_size=args.steplr_step_size,
                                        steplr_gamma=args.steplr_gamma,
@@ -1629,7 +1631,7 @@ def main():
                     pm.train(args.transfer_epochs,
                              output_freq=args.output_freq,
                              kl_annealing=args.kl_annealing,
-                             transformer=self.transformer,
+                             transformer=pm.transformer,
                              snr_annealing=args.snr_annealing)
                 except KeyboardInterrupt as e:
                     print(e)
@@ -1653,7 +1655,7 @@ def main():
             try:
                 pm.train(args.epochs,
                          output_freq=args.output_freq,
-                         transformer=self.transformer,
+                         transformer=pm.transformer,
                          kl_annealing=args.kl_annealing,
                          snr_annealing=args.snr_annealing)
             except KeyboardInterrupt as e:
