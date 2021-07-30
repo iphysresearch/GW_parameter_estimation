@@ -1,4 +1,3 @@
-from inference import transformer
 import os
 import argparse
 from torch.utils.data import DataLoader
@@ -20,6 +19,7 @@ from . import a_flows
 from . import cvae
 from tqdm import tqdm
 from .utils import kl_divergence, js_divergence, touch
+from .utils import MultipleOptimizer, MultipleScheduler
 
 matplotlib.use('Agg')
 os.environ['OMP_NUM_THREADS'] = str(1)
@@ -341,6 +341,7 @@ class PosteriorModel(object):
                             lr_annealing=True, anneal_method='step',
                             total_epochs=None,
                             transformer=None,
+                            lr_transformer=None,
                             steplr_step_size=80, steplr_gamma=0.5,
                             flow_lr=None):
         """Set up the optimizer and scheduler."""
@@ -363,18 +364,26 @@ class PosteriorModel(object):
                                        'lr': flow_lr})
             self.optimizer = torch.optim.Adam(param_list, lr=lr)
         elif transformer:
-            print('Transformer!!')
+            print('Opt for Transformer!!')
             self.transformer = transformer
-            self.optimizer = torch.optim.Adam(list(self.model.parameters()) + list(self.transformer['encoder'].parameters()), lr=lr)
+            op1 = torch.optim.Adam(self.model.parameters(), lr=lr)
+            op2 = torch.optim.Adam(self.transformer['encoder'].parameters(), 
+                                   lr=lr_transformer)
+            self.optimizer = MultipleOptimizer(op1, op2)
         else:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-        if lr_annealing is True:
+        if lr_annealing is True:            
             if anneal_method == 'step':
                 self.scheduler = torch.optim.lr_scheduler.StepLR(
                     self.optimizer,
                     step_size=steplr_step_size,
                     gamma=steplr_gamma)
+            elif transformer:
+                print('lr_sch (cosine) for Transformer!!')
+                lr_sch1 = torch.optim.lr_scheduler.CosineAnnealingLR(op1, T_max=total_epochs)
+                lr_sch2 = torch.optim.lr_scheduler.CosineAnnealingLR(op2, T_max=total_epochs)                
+                self.scheduler = MultipleScheduler(lr_sch1, lr_sch2)                    
             elif anneal_method == 'cosine':
                 self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                     self.optimizer,
@@ -421,6 +430,7 @@ class PosteriorModel(object):
         }
         if self.transformer:
             dict['model_transformer_state_dict'] = self.transformer['encoder'].state_dict()
+            dict['model_transformer_attention_weights'] = self.transformer['encoder'].attention_weights
 
         if self.scheduler is not None:
             dict['scheduler_state_dict'] = self.scheduler.state_dict()
@@ -653,7 +663,7 @@ class PosteriorModel(object):
                               'GW170104',  # 'GW170817',
                               'GW170818',
                               'GW170809', 'GW170814', 'GW170729'][(
-                                  -4 if len(self.detectors) else None
+                                  -4 if len(self.detectors) == 3 else None
                               ):]:
                     # Save kl and js history
                     self.save_kljs_history(p, epoch, event)
@@ -731,7 +741,7 @@ class PosteriorModel(object):
                            'GW170104',  # 'GW170817',
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
-                               -4 if len(self.detectors) else None):]):
+                               -4 if len(self.detectors) == 3 else None):]):
             self.all_event_strain[event] =\
                 self.load_a_event_strain(event, truncate_basis)
 
@@ -774,7 +784,7 @@ class PosteriorModel(object):
                            'GW170104',  # 'GW170817',
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
-                               -4 if len(self.detectors) else None):]):
+                               -4 if len(self.detectors) == 3 else None):]):
             self.all_bilby_samples[event] = self.load_a_bilby_samples(event)
 
     def save_test_samples(self, p):
@@ -784,7 +794,7 @@ class PosteriorModel(object):
                            'GW170104',  # 'GW170817',
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
-                               -4 if len(self.detectors) else None):]):
+                               -4 if len(self.detectors) == 3 else None):]):
             self.get_test_samples(event)
             np.save(p / (('a{}_'.format(self.wfd.mixed_alpha)
                     if self.wfd.mixed_alpha else '') + 'test_event_samples'),
@@ -849,7 +859,7 @@ class PosteriorModel(object):
                            'GW170104',  # 'GW170817',
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
-                               -4 if len(self.detectors) else None):]):
+                               -4 if len(self.detectors) == 3 else None):]):
 
             jsdf = pd.read_csv(p / (('a{}_'.format(self.wfd.mixed_alpha)
                                if self.wfd.mixed_alpha else '')
@@ -1011,6 +1021,7 @@ def parse_args():
     train_parent_parser.add_argument(
         '--batch_size', type=int, default='512')
     train_parent_parser.add_argument('--lr', type=float, default='0.0001')
+    train_parent_parser.add_argument('--lr_transformer', type=float, default='0.0001')
     train_parent_parser.add_argument('--lr_anneal_method',
                                      choices=['step', 'cosine', 'cosineWR'],
                                      default='step')
@@ -1147,13 +1158,17 @@ def parse_args():
     )
     nde_parser.add_argument('--hidden_dims', type=int, required=True)
     nde_parser.add_argument('--nflows', type=int, required=True)
+    nde_parser.add_argument('--num_layers_transformer', type=int, required=True)
     nde_parser.add_argument('--batch_norm', action='store_true')
     nde_parser.add_argument('--nbins', type=int, required=True)
     nde_parser.add_argument('--tail_bound', type=float, default=1.0)
     nde_parser.add_argument('--apply_unconditional_transform',
                             action='store_true')
     nde_parser.add_argument('--dropout_probability', type=float, default=0.0)
+    nde_parser.add_argument('--dropout_transformer', type=float, default=0.0)
     nde_parser.add_argument('--num_transform_blocks', type=int, default=2)
+    nde_parser.add_argument('--num_heads_transformer', type=int, default=2)
+    nde_parser.add_argument('--ffn_num_hiddens_transformer', type=int, default=48)
     nde_parser.add_argument('--base_transform_type', type=str,
                             choices=['rq-coupling', 'rq-autoregressive'],
                             default='rq-coupling')
@@ -1284,22 +1299,26 @@ def main():
     args = parse_args()
     print(args)
     from .transformer import TransformerEncoder
-    transformer={}
-    transformer['encoder'] = TransformerEncoder(vocab_size=200, 
-                                                    key_size=100, 
-                                                    query_size=100, 
-                                                    value_size=100, 
-                                                    num_hiddens=100, 
-                                                    norm_shape=[4, 100], 
-                                                    ffn_num_input=100, 
-                                                    ffn_num_hiddens=48, 
-                                                    num_heads=2, 
-                                                    num_layers=2,
-                                                    dropout=0.5,
-                                                noEmbedding=True)
+    norm_shape = [4, 100]
+    transformer = {
+        'encoder': TransformerEncoder(
+            vocab_size=200, # for embeding only
+            key_size=norm_shape[1],
+            query_size=norm_shape[1],
+            value_size=norm_shape[1],
+            num_hiddens=norm_shape[1],
+            norm_shape=norm_shape,
+            ffn_num_input=norm_shape[1],
+            ffn_num_hiddens=args.ffn_num_hiddens_transformer,
+            num_heads=args.num_heads_transformer,
+            num_layers=args.num_layers_transformer,
+            dropout=args.dropout_transformer,
+            noEmbedding=True,
+            )
+        }
     transformer['encoder'].to(torch.device('cuda'))
     transformer['encoder'].train()
-    transformer['valid_lens'] = torch.tensor([100,]*args.batch_size).to(torch.device('cuda'), non_blocking=True)
+    transformer['valid_lens'] = torch.tensor([norm_shape[1],]*args.batch_size).to(torch.device('cuda'), non_blocking=True)
 
     if args.mode == 'train':
 
@@ -1553,6 +1572,7 @@ def main():
                                    anneal_method=args.lr_anneal_method,
                                    total_epochs=args.epochs,
                                    transformer=transformer,
+                                   lr_transformer=args.lr_transformer,
                                    # steplr=args.steplr,
                                    steplr_step_size=args.steplr_step_size,
                                    steplr_gamma=args.steplr_gamma,
@@ -1623,6 +1643,7 @@ def main():
                                        anneal_method=args.lr_anneal_method,
                                        total_epochs=args.transfer_epochs,
                                        transformer=pm.transformer,
+                                       lr_transformer=args.lr_transformer,
                                        # steplr=args.steplr,
                                        steplr_step_size=args.steplr_step_size,
                                        steplr_gamma=args.steplr_gamma,

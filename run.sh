@@ -16,11 +16,16 @@ python3.7 -m inference.gwpe_main train new nde \
     --batch_size 2048 \
     --output_freq 10 \
     --lr 0.0001 \
+    --lr_transformer 0.001 \
     --epochs 10000 \
     --distance_prior_fn uniform_distance \
     --hidden_dims 512 \
     --truncate_basis 100 \
     --activation elu \
+    --dropout_transformer 0.5 \
+    --num_layers_transformer 6 \
+    --num_heads_transformer 2 \
+    --ffn_num_hiddens_transformer \
     --lr_anneal_method cosine
 # train data sampling from posterior
 # for all params dim
