@@ -296,6 +296,7 @@ def train_epoch(flow, train_loader, optimizer, epoch,
 
         # Compute log prob
         if transformer:
+            transformer['encoder'].train()
             loss = - flow.log_prob(x, context=transformer['encoder'](y.reshape(-1, 4, 100), transformer['valid_lens']).reshape(-1,400))
         else:
             loss = - flow.log_prob(x, context=y)
@@ -429,9 +430,10 @@ def obtain_samples(flow, y, nsamples, device=None, transformer=None, batch_size=
 
         num_batches = nsamples // batch_size
         num_leftover = nsamples % batch_size
+        valid_lens = torch.tensor([100,]*1).to(device)
         if transformer:
             transformer['encoder'].eval()
-            y = transformer['encoder'](y.reshape(-1, 4, 100), transformer['valid_lens']).reshape(-1,400)
+            y = transformer['encoder'](y.reshape(-1, 4, 100), valid_lens).reshape(-1,400)
         samples = [flow.sample(batch_size, y) for _ in range(num_batches)]
 
         
