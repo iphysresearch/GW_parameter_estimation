@@ -1304,7 +1304,7 @@ def main():
     args = parse_args()
     print(args)
     from .transformer import TransformerEncoder
-    norm_shape = [4, 100]
+    norm_shape = [4, args.truncate_basis]
     transformer = {
         'encoder': TransformerEncoder(
             vocab_size=200, # for embeding only

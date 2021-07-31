@@ -1,7 +1,7 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0
 python3.7 -m inference.gwpe_main train new nde \
     --data_dir data/GW150914_sample_prior_basis/ \
-    --model_dir models/GW150914_sample_uniform_100basis_all_uniform_prior_4100_lr005_d05_6block_128mlp/ \
+    --model_dir models/GW150914_sample_uniform_100basis_all_uniform_prior_4100_lr005_d01_6block_128mlp_1head/ \
     --basis_dir data/GW150914_sample_prior_basis/ \
     --save_model_name model.pt \
     --save_aux_filename waveforms_supplementary.hdf5 \
@@ -22,9 +22,9 @@ python3.7 -m inference.gwpe_main train new nde \
     --hidden_dims 512 \
     --truncate_basis 100 \
     --activation elu \
-    --dropout_transformer 0.5 \
+    --dropout_transformer 0.1 \
     --num_layers_transformer 6 \
-    --num_heads_transformer 2 \
+    --num_heads_transformer 1 \
     --ffn_num_hiddens_transformer 128 \
     --lr_anneal_method cosine
 # train data sampling from posterior
