@@ -538,8 +538,13 @@ class PosteriorModel(object):
         epoch_minimum_test_loss = 1
         for epoch in range(self.epoch, self.epoch + epochs):
 
-            print('Learning rate: {}'.format(
-                self.optimizer.state_dict()['param_groups'][0]['lr']))
+            if self.transformer:
+                for Dict in self.optimizer.state_dict():
+                    print('Learning rate: {}'.format(
+                        Dict['param_groups'][0]['lr']))
+            else:
+                print('Learning rate: {}'.format(
+                    self.optimizer.state_dict()['param_groups'][0]['lr']))
             if self.model_type == 'maf':
                 train_loss = a_flows.train_epoch(
                     self.model,
