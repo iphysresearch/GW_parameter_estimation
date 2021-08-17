@@ -1,4 +1,4 @@
-name: GWPE
+name: gwpe
 channels:
   - conda-forge
   - defaults
@@ -15,6 +15,15 @@ dependencies:
   - lalsuite
   - pycbc
   - pip
+  # For testing and benchmarking
+  - pytest
+  - pytest-cov
+  - codecov
+  # For type annotations
+  - mypy
+  - typing_extensions
+  - pylint
+  # PyTorch
   - pytorch::pytorch
   - pytorch::torchvision
   - pandas
@@ -28,3 +37,4 @@ dependencies:
     - nflows
     - pyro-ppl
     - torchdiffeq
+    - jupyterlab-unfold
