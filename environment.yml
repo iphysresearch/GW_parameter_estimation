@@ -38,3 +38,4 @@ dependencies:
     - pyro-ppl
     - torchdiffeq
     - jupyterlab-unfold
+    - umnn
