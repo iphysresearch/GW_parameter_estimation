@@ -41,6 +41,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
+# [W NNPACK.cpp:79] Could not initialize NNPACK! Reason: Unsupported hardware.  # TODO
 os.environ['OMP_NUM_THREADS'] = str(1)
 os.environ['MKL_NUM_THREADS'] = str(1)
 
