@@ -1,3 +1,9 @@
+# [W NNPACK.cpp:79] Could not initialize NNPACK! Reason: Unsupported hardware.  # TODO
+# http://www.diracprogram.org/doc/release-12/installation/mkl.html
+# https://github.com/PaddlePaddle/Paddle/issues/17615
+import os
+# os.environ['OMP_NUM_THREADS'] = str(1)
+# os.environ['MKL_NUM_THREADS'] = str(1)
 import argparse
 try:
     from gwtoolkit.gw import WaveformDataset
@@ -11,7 +17,8 @@ try:
                              js_divergence,
                              kl_divergence,
                              print_dict)
-except ModuleNotFoundError:
+except ModuleNotFoundError as e:
+    print(e)
     import sys
     sys.path.insert(0, '../GWToolkit/')
     sys.path.insert(0, '..')
@@ -26,7 +33,6 @@ except ModuleNotFoundError:
                              js_divergence,
                              kl_divergence,
                              print_dict)
-import os
 import time
 from pathlib import Path
 import h5py
@@ -41,9 +47,6 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-# [W NNPACK.cpp:79] Could not initialize NNPACK! Reason: Unsupported hardware.  # TODO
-os.environ['OMP_NUM_THREADS'] = str(1)
-os.environ['MKL_NUM_THREADS'] = str(1)
 
 
 class PosteriorModel(object):
@@ -53,12 +56,18 @@ class PosteriorModel(object):
                  save_model_name,
                  use_cuda):
         super().__init__()
-        self.model_dir = model_dir
+        if model_dir is None:
+            raise NameError("Model directory must be specified."
+                            " Store in attribute PosteriorModel.model_dir")
+        self.model_dir = Path(model_dir)
+        self.model_dir.mkdir(parents=True, exist_ok=True)
         self.events_dir = events_dir
         self.save_model_name = save_model_name
         self.train_history = []
         self.test_history = []
         self.epoch_minimum_test_loss = 1
+        self.epoch_cache = 1
+        self.test_samples = None
 
         self.wfd = None
         self.target_labels = None
@@ -302,8 +311,7 @@ class PosteriorModel(object):
                 start_time = time.time()
 
         train_loss = train_loss.item() / len(self.train_loader.dataset)
-        print('Train Epoch: {} \tAverage Loss: {:.4f}'.format(
-            epoch, train_loss))
+        print(f'Train Epoch: {epoch} \tAverage Loss: {train_loss:.4f}')
 
         return train_loss
 
@@ -342,15 +350,14 @@ class PosteriorModel(object):
                 test_loss += loss.sum()
 
             test_loss = test_loss.item() / len(self.test_loader.dataset)
-            print('Test set: Average loss: {:.4f}\n'
-                  .format(test_loss))
+            print(f'Test set: Average loss: {test_loss:.4f}')
 
             return test_loss
 
     def train(self, total_epochs, output_freq, kwargs):
-        epoch = 1
-
-        for epoch in range(epoch, epoch + total_epochs):
+        print('Starting timer')
+        start_time = time.time()
+        for epoch in range(self.epoch_cache, self.epoch_cache + total_epochs):
 
             if self.embedding_net is not None:
                 print(
@@ -373,8 +380,14 @@ class PosteriorModel(object):
             self.train_history.append(train_loss)
             self.test_history.append(test_loss)
 
-            # Log/Plot the history to file
+            self.epoch_cache = epoch + 1
+            # Log/Plot/Save the history to file
             self._logging_to_file(epoch, kwargs)
+            if ((output_freq is not None) and (epoch == self.epoch_minimum_test_loss)):
+                self._save_model_samples(epoch)
+        print('Stopping timer.')
+        stop_time = time.time()
+        print(f'Training time (including validation): {stop_time - start_time} seconds')
 
     @staticmethod
     def _plot_to(ylabel, p, filename):
@@ -386,58 +399,65 @@ class PosteriorModel(object):
 
     def _logging_to_file(self, epoch, kwargs):
         # Log the history to file
-        p = Path(self.model_dir)
-        p.mkdir(parents=True, exist_ok=True)
 
         # Make column headers if this is the first epoch
         if epoch == 1:
-            writer_row(p, 'loss_history.txt', 'w', [epoch, self.train_history[-1], self.test_history[-1]])
+            writer_row(self.model_dir, 'loss_history.txt', 'w',
+                       [epoch, self.train_history[-1], self.test_history[-1]])
         else:
-            writer_row(p, 'loss_history.txt', 'a', [epoch, self.train_history[-1], self.test_history[-1]])
+            writer_row(self.model_dir, 'loss_history.txt', 'a',
+                       [epoch, self.train_history[-1], self.test_history[-1]])
 
-            data_history = np.loadtxt(p / 'loss_history.txt')
+            data_history = np.loadtxt(self.model_dir / 'loss_history.txt')
             # Plot
             plt.figure()
             plt.plot(data_history[:, 0],
                      data_history[:, 1], '*--', label='train')
             plt.plot(data_history[:, 0],
                      data_history[:, 2], '*--', label='test')
-            self._plot_to('Loss', p, 'loss_history.png')
+            self._plot_to('Loss', self.model_dir, 'loss_history.png')
             self.epoch_minimum_test_loss = int(data_history[
                 np.argmin(data_history[:, 2]), 0])
 
-        self._save_kljs_history(p, epoch, **kwargs)
-        self._plot_kljs_history(p, epoch, kwargs['event'])
+        self._save_kljs_history(epoch, **kwargs)
+        self._plot_kljs_history(epoch, kwargs['event'])
 
-    def _save_kljs_history(self, p, epoch, event, nsamples_target_event,
+    def _save_model_samples(self, epoch):
+        for f in ffname(self.model_dir, f'e*_{self.save_model_name}'):
+            os.remove(self.model_dir / f)
+        print(f'Saving model as e{epoch}_{self.save_model_name}\n')
+        self.save_model(filename=f'e{epoch}_{self.save_model_name}')
+        self._save_test_samples()
+
+    def _save_kljs_history(self, epoch, event, nsamples_target_event,
                            flow, fhigh, sample_rate, batch_size,
                            start_time, duration, bilby_event_dir):
 
-        test_samples = self._get_test_samples(event, nsamples_target_event,
-                                              flow, fhigh, sample_rate, batch_size,
-                                              start_time, duration)
+        self.test_samples = self._get_test_samples(event, nsamples_target_event,
+                                                   flow, fhigh, sample_rate, batch_size,
+                                                   start_time, duration)
         bilby_samples = self._load_a_bilby_samples(event, nsamples_target_event, bilby_event_dir)
 
         if epoch == 1:
-            writer_row(p, 'js_history.txt', 'w', self.target_labels)
-            writer_row(p, 'kl_history.txt', 'w', self.target_labels)
-        writer_row(p, 'js_history.txt', 'a',
-                   [js_divergence([test_samples[:, i],
+            writer_row(self.model_dir, 'js_history.txt', 'w', self.target_labels)
+            writer_row(self.model_dir, 'kl_history.txt', 'w', self.target_labels)
+        writer_row(self.model_dir, 'js_history.txt', 'a',
+                   [js_divergence([self.test_samples[:, i],
                                    bilby_samples[:, i]]) for i in range(len(self.target_labels))])
-        writer_row(p, 'kl_history.txt', 'a',
-                   [kl_divergence([test_samples[:, i],
+        writer_row(self.model_dir, 'kl_history.txt', 'a',
+                   [kl_divergence([self.test_samples[:, i],
                                    bilby_samples[:, i]]) for i in range(len(self.target_labels))])
 
-    def _plot_kljs_history(self, p, epoch, event):
+    def _plot_kljs_history(self, epoch, event):
         if epoch <= 1:
             return
         for s in ['js', 'kl']:
-            jsdf = pd.read_csv(p / f'{s}_history.txt', sep='\t')
+            jsdf = pd.read_csv(self.model_dir / f'{s}_history.txt', sep='\t')
             plt.figure()
             plt.fill_between(range(len(jsdf)),
                              jsdf.mean(axis=1),
                              jsdf.max(axis=1), alpha=0.6, label=event)
-            self._plot_to(f'{str.upper(s)} div.', p, f'{s}_history.png')
+            self._plot_to(f'{str.upper(s)} div.', self.model_dir, f'{s}_history.png')
 
     def _event_data_transform(self, event, events_dir, flow, fhigh, sample_rate, start_time, duration):
         from gwpy.timeseries import TimeSeries
@@ -532,6 +552,26 @@ class PosteriorModel(object):
         # bilby_samples[:, 3] = bilby_samples[:, 3] - event_gps_dict[event]
         return df.dropna()[self.target_labels].sample(nsample).values.astype('float64')
 
+    def save_model(self, filename='model.pt'):
+        cache_dict = {  # TODO
+            'flow_net_hyperparams': self.flow_net.model_hyperparams,
+            'flow_net_state_dict': self.flow_net.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epoch_cache': self.epoch_cache,
+            'epoch_minimum_test_loss': self.epoch_minimum_test_loss,
+        }
+        if self.embedding_net is not None:
+            cache_dict['embedding_net_state_dict'] = self.embedding_net.state_dict()
+            # cache_dict['embedding_net_attention_weights'] = self.embedding_net.attention_weights  # TODO
+
+        if self.scheduler is not None:
+            cache_dict['scheduler_state_dict'] = self.scheduler.state_dict()
+
+        torch.save(cache_dict, self.model_dir / filename)
+
+    def _save_test_samples(self):  # TODO  which event?
+        np.save(self.model_dir / 'test_event_samples', self.test_samples)
+
 
 class Nestedspace(argparse.Namespace):
     def __setattr__(self, name, value):
@@ -580,7 +620,7 @@ def parse_args():
     waveform_parent_parser.add_argument(
         '--waveform.base',
         choices=['bilby', 'pycbc'],  # TODO
-        default='bilby',
+        default='bilby',  # FIXME
         required=True)
     waveform_parent_parser.add_argument(
         '--waveform.detectors',
