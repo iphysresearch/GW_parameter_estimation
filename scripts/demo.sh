@@ -1,4 +1,7 @@
 export CUDA_VISIBLE_DEVICES=0
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export OMP_NUM_THREADS=1
 python ../model/main.py train new \
     --events_dir ../data/events_hdf5 \
     --model_dir ../output/models/test_model \
