@@ -38,4 +38,5 @@ dependencies:
     - pyro-ppl
     - torchdiffeq
     - jupyterlab-unfold
+    - -e .  # install package in development mode
     - umnn
