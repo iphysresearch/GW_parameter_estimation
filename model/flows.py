@@ -4,6 +4,7 @@ from torch.nn import functional as F
 # import nflows.nn.nets as nn_
 from model.resnet import ResidualNet
 from model.transformer import TransformerResidualNet
+from model.umnn import UMNNCouplingTransform
 import time
 
 
@@ -25,24 +26,27 @@ def create_linear_transform(param_dim):
 
 def create_base_transform(i,
                           param_dim,
-                          context_dim=None,
-                          hidden_dim=512,
-                          num_transform_blocks=2,  # also transformer
-                          activation='relu',
-                          dropout_probability=0.0,
-                          batch_norm=False,
-                          num_bins=8,
-                          tail_bound=1.,
-                          apply_unconditional_transform=False,
-                          base_transform_type='rq-coupling',
+                          num_bins=8,                           # rq-coupling
+                          tail_bound=1.,                        # rq-coupling
+                          apply_unconditional_transform=False,  # rq-coupling
 
-                          hidden_features=32,               # only transformer
-                          context_tokens=60,                # only transformer
-                          context_features=2048,            # only transformer
-                          ffn_num_hiddens_transofmer=32,    # only transformer
-                          num_heads_transformer=2,          # only transformer
-                          num_transformer_layers=2,         # only transformer
-                          dropout_transformer=0.1,          # only transformer                     
+                          base_transform_type='rq-coupling+transformer',
+                          # Conditioner:
+                          activation='relu',                # resnet
+                          batch_norm=False,                 # resnet
+                          context_features=2048,            # resnet / transformer
+                          hidden_features=32,               # resnet / transformer
+                          num_blocks=2,                     # resnet / transformer
+                          dropout=0.1,                      # resnet / transformer
+                          context_tokens=60,                # transformer
+                          ffn_num_hiddens=32,               # transformer
+                          num_heads=2,                      # transformer
+                          num_layers=2,                     # transformer
+
+                          integrand_net_layers=[50, 50, 50],  # for UMNN
+                          cond_size=20,                       # for UMNN
+                          nb_steps=20,                        # for UMNN
+                          solver="CCParallel",                # for UMNN
                           ):
     """Build a base NSF transform of x, conditioned on y.
 
@@ -100,65 +104,111 @@ def create_base_transform(i,
         activation_fn = F.relu   # Default
         print('Invalid activation function specified. Using ReLU.')
 
-    if base_transform_type == 'rq-coupling':
+    if base_transform_type == 'rq-coupling+resnet':
         return transforms.PiecewiseRationalQuadraticCouplingTransform(
             mask=utils.create_alternating_binary_mask(
                 param_dim, even=(i % 2 == 0)),
             transform_net_create_fn=(lambda in_features, out_features:
-                                    ResidualNet(
+                                     ResidualNet(
                                         in_features=in_features,
                                         out_features=out_features,
-                                        hidden_features=hidden_dim,
-                                        context_features=context_dim,
-                                        num_blocks=num_transform_blocks,
+                                        hidden_features=hidden_features,
+                                        context_features=context_features,
+                                        num_blocks=num_blocks,
                                         activation=activation_fn,
-                                        dropout_probability=dropout_probability,
+                                        dropout=dropout,
                                         use_batch_norm=batch_norm
-                                    )
-                                    ),
+                                     )
+                                     ),
             num_bins=num_bins,
             tails='linear',
             tail_bound=tail_bound,
             apply_unconditional_transform=apply_unconditional_transform
         )
 
-    if base_transform_type == 'rq-coupling+transformer':
+    elif base_transform_type == 'rq-coupling+transformer':
         return transforms.PiecewiseRationalQuadraticCouplingTransform(
             mask=utils.create_alternating_binary_mask(
                 param_dim, even=(i % 2 == 0)),
             transform_net_create_fn=(lambda in_features, out_features:
-                                    TransformerResidualNet(
-                                        in_features=in_features,
-                                        out_features=out_features,
-                                        hidden_features=hidden_features,
-                                        context_tokens=context_tokens,
-                                        context_features=context_features,
-                                        num_blocks=num_transform_blocks,
-                                        ffn_num_hiddens_transofmer=num_transform_blocks,
-                                        num_heads_transformer=num_heads_transformer,
-                                        num_transformer_layers=num_transformer_layers,
-                                        dropout_transformer=dropout_transformer,                                        
-                                    )
-                                    ),
+                                     TransformerResidualNet(
+                                         in_features=in_features,
+                                         out_features=out_features,
+                                         hidden_features=hidden_features,
+                                         context_tokens=context_tokens,
+                                         context_features=context_features,
+                                         num_blocks=num_blocks,
+                                         ffn_num_hiddens=ffn_num_hiddens,
+                                         num_heads=num_heads,
+                                         num_layers=num_layers,
+                                         dropout=dropout,
+                                        )
+                                     ),
             num_bins=num_bins,
             tails='linear',
             tail_bound=tail_bound,
             apply_unconditional_transform=apply_unconditional_transform
-        )        
+        )
+
+    elif base_transform_type == 'umnn+transformer':
+        return UMNNCouplingTransform(
+            mask=utils.create_alternating_binary_mask(
+                param_dim, even=(i % 2 == 0)),
+            transform_net_create_fn=(lambda in_features, out_features:
+                                     TransformerResidualNet(
+                                         in_features=in_features,
+                                         out_features=out_features,
+                                         hidden_features=hidden_features,
+                                         context_tokens=context_tokens,
+                                         context_features=context_features,
+                                         num_blocks=num_blocks,
+                                         ffn_num_hiddens=ffn_num_hiddens,
+                                         num_heads=num_heads,
+                                         num_layers=num_layers,
+                                         dropout=dropout,
+                                        )
+                                     ),
+            integrand_net_layers=integrand_net_layers,
+            cond_size=cond_size,
+            nb_steps=nb_steps,
+            solver=solver,
+        )
+
+    elif base_transform_type == 'umnn+resnet':  # TODO
+        return UMNNCouplingTransform(
+            mask=utils.create_alternating_binary_mask(
+                param_dim, even=(i % 2 == 0)),
+            transform_net_create_fn=(lambda in_features, out_features:
+                                     ResidualNet(
+                                        in_features=in_features,
+                                        out_features=out_features,
+                                        hidden_features=hidden_features,
+                                        context_features=context_features,
+                                        num_blocks=num_blocks,
+                                        activation=activation_fn,
+                                        dropout=dropout,
+                                        use_batch_norm=batch_norm
+                                     )
+                                     ),
+            integrand_net_layers=integrand_net_layers,
+            cond_size=cond_size,
+            nb_steps=nb_steps,
+            solver=solver,
+        )
 
     elif base_transform_type == 'rq-autoregressive':
         return transforms.MaskedPiecewiseRationalQuadraticAutoregressiveTransform(
             features=param_dim,
-            hidden_features=hidden_dim,
-            context_features=context_dim,
+            hidden_features=hidden_features,
+            context_features=context_features,
             num_bins=num_bins,
             tails='linear',
             tail_bound=tail_bound,
-            num_blocks=num_transform_blocks,
+            num_blocks=num_blocks,
             use_residual_blocks=True,
             random_mask=False,
             activation=activation_fn,
-            dropout_probability=dropout_probability,
+            dropout_probability=dropout,
             use_batch_norm=batch_norm
         )
 
@@ -168,7 +218,6 @@ def create_base_transform(i,
 
 def create_transform(num_flow_steps,
                      param_dim,
-                     context_dim,
                      base_transform_kwargs):
     """Build a sequence of NSF transforms, which maps parameters x into the
     base distribution u (noise). Transforms are conditioned on strain data y.
@@ -193,19 +242,18 @@ def create_transform(num_flow_steps,
         Transform -- the constructed transform
     """
 
-    transform = transforms.CompositeTransform([
+    return transforms.CompositeTransform([
         transforms.CompositeTransform([
             create_linear_transform(param_dim),
-            create_base_transform(i, param_dim, context_dim=context_dim,
+            create_base_transform(i, param_dim,
                                   **base_transform_kwargs)
         ]) for i in range(num_flow_steps)
     ] + [
         create_linear_transform(param_dim)
     ])
-    return transform
 
 
-def create_NDE_model(input_dim, context_dim, num_flow_steps,
+def create_NDE_model(input_dim, num_flow_steps,
                      base_transform_kwargs):
     """Build NSF (neural spline flow) model. This uses the nsf module
     available at https://github.com/bayesiains/nsf.
@@ -228,7 +276,7 @@ def create_NDE_model(input_dim, context_dim, num_flow_steps,
 
     distribution = distributions.StandardNormal((input_dim,))
     transform = create_transform(
-        num_flow_steps, input_dim, context_dim, base_transform_kwargs)
+        num_flow_steps, input_dim, base_transform_kwargs)
     flow = flows.Flow(transform, distribution)
 
     # Store hyperparameters. This is for reconstructing model when loading from
@@ -237,7 +285,6 @@ def create_NDE_model(input_dim, context_dim, num_flow_steps,
     flow.model_hyperparams = {
         'input_dim': input_dim,
         'num_flow_steps': num_flow_steps,
-        'context_dim': context_dim,
         'base_transform_kwargs': base_transform_kwargs
     }
 

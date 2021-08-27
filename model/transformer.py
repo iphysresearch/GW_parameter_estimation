@@ -207,7 +207,7 @@ class Encoder(nn.Module):
 class TransformerEncoder(Encoder):
     def __init__(self, vocab_size, key_size, query_size, value_size,
                  num_hiddens, norm_shape, ffn_num_input, ffn_num_hiddens,
-                 num_heads, num_layers, dropout, valid_lens, 
+                 num_heads, num_layers, dropout, valid_lens,
                  use_bias=False, noEmbedding=False, **kwargs):
         super(TransformerEncoder, self).__init__(**kwargs)
         self.num_hiddens = num_hiddens
@@ -391,10 +391,10 @@ class TransformerResidualBlock(nn.Module):
             num_layers=num_layers,
             dropout=dropout,
             )
-        if zero_initialization:
-            pass
-            # init.uniform_(self.conv_layers[-1].weight, -1e-3, 1e-3)
-            # init.uniform_(self.conv_layers[-1].bias, -1e-3, 1e-3)
+        # if zero_initialization:
+        #     pass
+        #  init.uniform_(self.conv_layers[-1].weight, -1e-3, 1e-3)
+        #  init.uniform_(self.conv_layers[-1].bias, -1e-3, 1e-3)
 
     def forward(self, inputs, context=None):
         temps = inputs
@@ -412,10 +412,10 @@ class TransformerResidualNet(nn.Module):
         hidden_features,
         context_tokens,
         num_blocks=2,
-        ffn_num_hiddens_transofmer=128,
-        num_heads_transformer=1,
-        num_transformer_layers=1,
-        dropout_transformer=0.0,
+        ffn_num_hiddens=128,
+        num_heads=1,
+        num_layers=1,
+        dropout=0.0,
         context_features=None,
     ):
         super().__init__()
@@ -442,10 +442,10 @@ class TransformerResidualNet(nn.Module):
                     hidden_features=hidden_features,
                     context_tokens=context_tokens,
                     norm_shape=(hidden_features, context_features),
-                    ffn_num_hiddens=ffn_num_hiddens_transofmer,
-                    num_heads=num_heads_transformer,
-                    num_layers=num_transformer_layers,
-                    dropout=dropout_transformer,
+                    ffn_num_hiddens=ffn_num_hiddens,
+                    num_heads=num_heads,
+                    num_layers=num_layers,
+                    dropout=dropout,
                 )
                 for _ in range(num_blocks)
             ]
@@ -462,5 +462,4 @@ class TransformerResidualNet(nn.Module):
             temps = self.initial_layer(torch.cat((inputs, context), dim=1))
         for block in self.blocks:
             temps = block(temps, context)
-        outputs = self.final_layer(self.flatten_layer(temps))
-        return outputs
+        return self.final_layer(self.flatten_layer(temps))

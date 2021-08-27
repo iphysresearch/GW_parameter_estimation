@@ -14,7 +14,7 @@ class ResidualBlock(nn.Module):
         features,
         context_features,
         activation=F.relu,
-        dropout_probability=0.0,
+        dropout=0.0,
         use_batch_norm=False,
         zero_initialization=True,
     ):
@@ -31,7 +31,7 @@ class ResidualBlock(nn.Module):
         self.linear_layers = nn.ModuleList(
             [nn.Linear(features, features) for _ in range(2)]
         )
-        self.dropout = nn.Dropout(p=dropout_probability)
+        self.dropout = nn.Dropout(p=dropout)
         if zero_initialization:
             init.uniform_(self.linear_layers[-1].weight, -1e-3, 1e-3)
             init.uniform_(self.linear_layers[-1].bias, -1e-3, 1e-3)
@@ -63,7 +63,7 @@ class ResidualNet(nn.Module):
         context_features=None,
         num_blocks=2,
         activation=F.relu,
-        dropout_probability=0.0,
+        dropout=0.0,
         use_batch_norm=False,
     ):
         super().__init__()
@@ -81,7 +81,7 @@ class ResidualNet(nn.Module):
                     features=hidden_features,
                     context_features=context_features,
                     activation=activation,
-                    dropout_probability=dropout_probability,
+                    dropout=dropout,
                     use_batch_norm=use_batch_norm,
                 )
                 for _ in range(num_blocks)
@@ -96,8 +96,7 @@ class ResidualNet(nn.Module):
             temps = self.initial_layer(torch.cat((inputs, context), dim=1))
         for block in self.blocks:
             temps = block(temps, context=context)
-        outputs = self.final_layer(temps)
-        return outputs
+        return self.final_layer(temps)
 
 
 class ConvResidualBlock(nn.Module):
@@ -106,7 +105,7 @@ class ConvResidualBlock(nn.Module):
         channels,
         context_channels=None,
         activation=F.relu,
-        dropout_probability=0.0,
+        dropout=0.0,
         use_batch_norm=False,
         zero_initialization=True,
     ):
@@ -128,7 +127,7 @@ class ConvResidualBlock(nn.Module):
         self.conv_layers = nn.ModuleList(
             [nn.Conv2d(channels, channels, kernel_size=3, padding=1) for _ in range(2)]
         )
-        self.dropout = nn.Dropout(p=dropout_probability)
+        self.dropout = nn.Dropout(p=dropout)
         if zero_initialization:
             init.uniform_(self.conv_layers[-1].weight, -1e-3, 1e-3)
             init.uniform_(self.conv_layers[-1].bias, -1e-3, 1e-3)
@@ -158,7 +157,7 @@ class ConvResidualNet(nn.Module):
         context_channels=None,
         num_blocks=2,
         activation=F.relu,
-        dropout_probability=0.0,
+        dropout=0.0,
         use_batch_norm=False,
     ):
         super().__init__()
@@ -184,7 +183,7 @@ class ConvResidualNet(nn.Module):
                     channels=hidden_channels,
                     context_channels=context_channels,
                     activation=activation,
-                    dropout_probability=dropout_probability,
+                    dropout=dropout,
                     use_batch_norm=use_batch_norm,
                 )
                 for _ in range(num_blocks)
@@ -201,8 +200,7 @@ class ConvResidualNet(nn.Module):
             temps = self.initial_layer(torch.cat((inputs, context), dim=1))
         for block in self.blocks:
             temps = block(temps, context)
-        outputs = self.final_layer(temps)
-        return outputs
+        return self.final_layer(temps)
 
 
 def main():
@@ -215,7 +213,7 @@ def main():
         hidden_channels=32,
         context_channels=channels // 2,
         num_blocks=2,
-        dropout_probability=0.1,
+        dropout=0.1,
         use_batch_norm=True,
     )
     print(utils.get_num_parameters(net))
