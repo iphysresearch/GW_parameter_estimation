@@ -4,6 +4,7 @@ models/*/*.pt
 models/*/*.hdf5
 models/*/.*
 GWToolkit/
+output/models/test*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
