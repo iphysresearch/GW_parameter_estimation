@@ -35,7 +35,7 @@ except ModuleNotFoundError as e:
                              print_dict)
 import time
 from pathlib import Path
-import h5py
+import csv
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -46,7 +46,6 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
-
 
 
 class PosteriorModel(object):
@@ -68,6 +67,7 @@ class PosteriorModel(object):
         self.epoch_minimum_test_loss = 1
         self.epoch_cache = 1
         self.test_samples = None
+        self.embedding_transformer_kwargs = None
 
         self.wfd = None
         self.target_labels = None
@@ -154,6 +154,7 @@ class PosteriorModel(object):
             'num_hiddens': norm_shape[1],
             'ffn_num_input': norm_shape[1],
         })
+        self.embedding_transformer_kwargs = kwargs
         print('\tInit a vanilla transformer:')
         print_dict(kwargs, 3, '\t\t')
         return TransformerEncoder(**kwargs)
@@ -562,7 +563,8 @@ class PosteriorModel(object):
         }
         if self.embedding_net is not None:
             cache_dict['embedding_net_state_dict'] = self.embedding_net.state_dict()
-            # cache_dict['embedding_net_attention_weights'] = self.embedding_net.attention_weights  # TODO
+            cache_dict['embedding_transformer_kwargs'] = self.embedding_transformer_kwargs
+            # cache_dict['embedding_net_attention_weights'] = self.embedding_net.attention_weights  # REVIEW
 
         if self.scheduler is not None:
             cache_dict['scheduler_state_dict'] = self.scheduler.state_dict()
@@ -571,6 +573,50 @@ class PosteriorModel(object):
 
     def _save_test_samples(self):  # TODO  which event?
         np.save(self.model_dir / 'test_event_samples', self.test_samples)
+
+    def load_model(self):
+
+        checkpoint = torch.load(self.model_dir / ffname(self.model_dir, f'e*_{self.save_model_name}')[0],
+                                map_location=self.device)
+
+        flow_net_hyperparams = checkpoint['flow_net_hyperparams']
+        assert flow_net_hyperparams['input_dim'] == len(self.target_labels)
+        self.base_transform_kwargs = flow_net_hyperparams['base_transform_kwargs']
+
+        print('Load Embedding Network...')
+        # Load embedding_net
+        self.embedding_transformer_kwargs = checkpoint['embedding_transformer_kwargs']
+        embedding_net = nn.Sequential(
+            self.init_vanilla_transformer(self.embedding_transformer_kwargs),
+        )
+        self.init_embedding_network(embedding_net)
+        self.embedding_net.load_state_dict(checkpoint['embedding_net_state_dict'])
+
+        # Load flow_net
+        print('Load Normalizing Flow Network...')
+        print('\tNumber of transforms in flow sequence:', flow_net_hyperparams['num_flow_steps'])
+        flow_creator = flows.create_NDE_model
+        self.flow_net = flow_creator(input_dim=flow_net_hyperparams['input_dim'],
+                                     num_flow_steps=flow_net_hyperparams['num_flow_steps'],
+                                     base_transform_kwargs=self.base_transform_kwargs)
+        print_dict(self.base_transform_kwargs, 3, '\t')
+        self.flow_net.to(self.device)
+        self.flow_net.load_state_dict(checkpoint['flow_net_state_dict'])
+
+        # Load loss history
+        with open(self.model_dir / 'loss_history.txt', 'r') as f:
+            reader = csv.reader(f, delimiter='\t')
+            for row in reader:
+                self.train_history.append(float(row[1]))
+                self.test_history.append(float(row[2]))
+
+        # Set the epoch to the correct value. This is needed to resume
+        # training.
+        self.epoch_cache = checkpoint['epoch_cache']
+        self.epoch_minimum_test_loss = checkpoint['epoch_minimum_test_loss']
+
+        # Store the list of detectors the model was trained with
+        # self.detectors = checkpoint['detectors']
 
 
 class Nestedspace(argparse.Namespace):
@@ -620,7 +666,7 @@ def parse_args():
     waveform_parent_parser.add_argument(
         '--waveform.base',
         choices=['bilby', 'pycbc'],  # TODO
-        default='bilby',  # FIXME
+        default='bilby',
         required=True)
     waveform_parent_parser.add_argument(
         '--waveform.detectors',
@@ -829,6 +875,7 @@ def parse_args():
 def main():
     args = parse_args()
     print(args)
+
     if args.mode == 'train':
         print('Events directory\t', args.events_dir)
         print('Model directory\t\t', args.model_dir)
@@ -891,27 +938,30 @@ def main():
             args.train.num_workers,
         )
 
-        # Init embedding network #######################################################
-        print('Init Embedding Network...')
-        embedding_transformer_kwargs = dict(
-            noEmbedding=True,
-            vocab_size=200,  # for embeding only
-            ffn_num_hiddens=args.transformer_embedding.ffn_num_hiddens,
-            num_heads=args.transformer_embedding.num_heads,
-            num_layers=args.transformer_embedding.num_layers,
-            dropout=args.transformer_embedding.dropout,
-            valid_lens=None,
-        )
-        embedding_net = nn.Sequential(
-            pm.init_vanilla_transformer(embedding_transformer_kwargs),
-        )
-        pm.init_embedding_network(embedding_net)
+        if args.model_source == 'new':
+            # Init embedding network #######################################################
+            print('Init Embedding Network...')
+            embedding_transformer_kwargs = dict(
+                noEmbedding=True,
+                vocab_size=200,  # for embeding only
+                ffn_num_hiddens=args.transformer_embedding.ffn_num_hiddens,
+                num_heads=args.transformer_embedding.num_heads,
+                num_layers=args.transformer_embedding.num_layers,
+                dropout=args.transformer_embedding.dropout,
+                valid_lens=None,
+            )
+            embedding_net = nn.Sequential(
+                pm.init_vanilla_transformer(embedding_transformer_kwargs),
+            )
+            pm.init_embedding_network(embedding_net)
 
-        # Init nflow network ##########################################################
-        print('Init Normalizing Flow Network...')
-        print(f'\tNumber of transforms in flow sequence: {args.num_flow_steps}')
-        pm.get_base_transform_kwargs(args)
-        pm.init_nflow_network(args.num_flow_steps)
+            # Init nflow network ##########################################################
+            print('Init Normalizing Flow Network...')
+            print(f'\tNumber of transforms in flow sequence: {args.num_flow_steps}')
+            pm.get_base_transform_kwargs(args)
+            pm.init_nflow_network(args.num_flow_steps)
+        elif args.model_source == 'existing':
+            pm.load_model()
 
         # Init training ###############################################################
         optimization_kwargs = dict(
@@ -945,7 +995,13 @@ def main():
         )
         print('\tInference events during training:')
         print_dict(vars(args.events), 3, '\t\t')
-        pm.train(args.train.total_epochs, args.train.output_freq, inference_events_kwargs)
+
+        try:
+            pm.train(args.train.total_epochs, args.train.output_freq, inference_events_kwargs)
+        except KeyboardInterrupt as e:
+            print(e)
+        finally:
+            print('Finished!')
 
 
 if __name__ == "__main__":
