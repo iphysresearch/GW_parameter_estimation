@@ -1,3 +1,4 @@
+.DS_Store
 .ipynb_checkpoints/
 downsampled_posterior_samples_v1.0.0/
 models/*/*.pt
