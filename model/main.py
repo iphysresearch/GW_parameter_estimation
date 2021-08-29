@@ -83,7 +83,7 @@ class PosteriorModel(object):
 
         if use_cuda and torch.cuda.is_available():
             self.device = torch.device('cuda')
-            torch.set_default_tensor_type('torch.cuda.FloatTensor')
+            #torch.set_default_tensor_type('torch.cuda.FloatTensor')
         else:
             self.device = torch.device('cpu')
 
@@ -281,13 +281,13 @@ class PosteriorModel(object):
 
         start_time = time.time()
         for batch_idx, (h, x) in enumerate(self.train_loader):
-
+            
             self.optimizer.zero_grad()
 
             if self.device is not None:
                 h = h.to(torch.float32).to(self.device, non_blocking=True)
                 x = x.to(torch.float32).to(self.device, non_blocking=True)
-
+            
             # Compute log prob
             if self.embedding_net is not None:
                 self.embedding_net.train()
