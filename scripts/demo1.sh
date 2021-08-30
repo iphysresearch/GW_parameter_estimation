@@ -6,7 +6,7 @@ export OMP_NUM_THREADS=1
 
 python ../model/main.py train new \
     --events_dir ../data/events_hdf5 \
-    --model_dir ../output/models/demo1_model \
+    --model_dir ../output/models/demo1_model2 \
     --prior_dir demo.prior \
     --save_model_name model.pt \
     --waveform.sampling_frequency 4096 \
