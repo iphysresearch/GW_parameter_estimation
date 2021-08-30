@@ -918,7 +918,9 @@ def main():
             ToTensor(),
         ])
         composed_params = transforms.Compose([
-            Normalize_params(args.waveform.norm_params_kind, wfd=pm.wfd, labels=target_labels),
+            Normalize_params(args.waveform.norm_params_kind,
+                             wfd=pm.wfd, labels=target_labels,
+                             feature_range=(-1, 1)),
             ToTensor(),
         ])
         pm.init_WaveformDatasetTorch(
