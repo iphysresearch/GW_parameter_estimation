@@ -83,7 +83,7 @@ class PosteriorModel(object):
 
         if use_cuda and torch.cuda.is_available():
             self.device = torch.device('cuda')
-            #torch.set_default_tensor_type('torch.cuda.FloatTensor')
+            # torch.set_default_tensor_type('torch.cuda.FloatTensor')
         else:
             self.device = torch.device('cpu')
 
@@ -372,6 +372,10 @@ class PosteriorModel(object):
             else:
                 print('Learning rate: {}'.format(
                     self.optimizer.state_dict()['param_groups'][0]['lr']))
+
+            self.train_loader.dataset.update()
+            self.test_loader.dataset.update()
+
             train_loss = self.train_epoch(epoch, output_freq)
             test_loss = self.test_epoch(epoch)
 
