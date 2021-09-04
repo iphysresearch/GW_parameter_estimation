@@ -22,6 +22,7 @@ except ModuleNotFoundError as e:
     import sys
     sys.path.insert(0, '../GWToolkit/')
     sys.path.insert(0, '..')
+    sys.path.insert(0, '../model/conformer/')
     from gwtoolkit.gw import WaveformDataset
     from gwtoolkit.torch import (WaveformDatasetTorch, Normalize_params, Patching_data, ToTensor)
     from model import flows
@@ -33,6 +34,10 @@ except ModuleNotFoundError as e:
                              js_divergence,
                              kl_divergence,
                              print_dict)
+    from conformer import Conformer
+    from model.vggblock import VGGBlock_causal
+    from model.cvt import CvT, Transformer, infer_conv_output_dim
+from einops.layers.torch import Rearrange
 import time
 from pathlib import Path
 import csv
@@ -80,6 +85,7 @@ class PosteriorModel(object):
         self.base_transform_kwargs = {}
         self.optimizer = None
         self.scheduler = None
+        self.input_shape = None
 
         if use_cuda and torch.cuda.is_available():
             self.device = torch.device('cuda')
@@ -137,15 +143,47 @@ class PosteriorModel(object):
             num_workers=num_workers,
             worker_init_fn=lambda _: np.random.seed(
                 int(torch.initial_seed()) % (2**32-1)))
+        self.input_shape = self.wfdt_train.data_block.shape[1:]
 
     def init_embedding_network(self, embedding_net):
         self.embedding_net = embedding_net
         self.embedding_net.to(self.device)
 
+    def init_rearrange(self, pattern):
+        arange = Rearrange(pattern)
+        print('before Rearrange:', self.input_shape)
+        self.input_shape = infer_conv_output_dim(arange, self.input_shape)
+        print('before Rearrange:', self.input_shape)
+        return arange
+
+    def init_vggblock(self):
+        # (batch_size, num_channel, time_step, patch_size) => VGGBlock
+        input_dim = self.input_shape[-1]
+        vggblock = VGGBlock_causal(
+            in_channels=self.input_shape[0],
+            out_channels=64,
+            conv_kernel_size=(3, 3),
+            pooling_kernel_size=(3, 2),  # (3,2), (2,2)
+            num_conv_layers=2,
+            input_dim=input_dim,
+            conv_stride=(1, 1),
+            conv_padding=(2, 0),
+            pool_padding=(0, 0, 2, 0),  # (index[-1]_left, index[-1]_right, index[-2]_left, index[-2]_right)
+            conv_dilation=1,
+            pool_dilation=1,
+            layer_norm=False,
+        )
+
+        print('before vgg:', self.input_shape)
+        self.input_shape = infer_conv_output_dim(vggblock, self.input_shape)
+        print('after vgg:', self.input_shape)
+        return vggblock
+
     def init_vanilla_transformer(self, kwargs):
         # Define input data structure of Transformer
-        norm_shape = [self.wfdt_train.data_block.shape[-2],
-                      self.wfdt_train.data_block.shape[-1]]
+        print('before init_vanilla_transformer:', self.input_shape)
+        norm_shape = self.input_shape
+        print(self.input_shape)
         kwargs.update({
             'norm_shape': norm_shape,
             'key_size': norm_shape[1],
@@ -188,7 +226,7 @@ class PosteriorModel(object):
 
         if self.conditioner_type == 'resnet':
             print('\tResNet conditioner:')
-            context_features = self.wfdt_train.data_block.shape[-1]
+            context_features = self.input_shape[-1]
             resnet_cond_kwargs = dict(
                 hidden_dims=args.resnet_cond.hidden_dims,
                 activation=args.resnet_cond.activation,
@@ -201,8 +239,8 @@ class PosteriorModel(object):
             print_dict(resnet_cond_kwargs, 2, '\t\t')
         elif self.conditioner_type == 'transformer':
             print('\tTransformer conditioner:')
-            context_tokens = self.wfdt_train.data_block.shape[-2]
-            context_features = self.wfdt_train.data_block.shape[-1]
+            context_tokens = self.input_shape[-2]
+            context_features = self.input_shape[-1]
             transformer_cond_kwargs = dict(
                 hidden_features=args.transformer_cond.hidden_features,
                 context_tokens=context_tokens,
@@ -958,6 +996,9 @@ def main():
                 valid_lens=None,
             )
             embedding_net = nn.Sequential(
+                pm.init_rearrange('b c h -> b c 1 h'),
+                pm.init_vggblock(),
+                pm.init_rearrange('b c h w -> b (c h) w'),
                 pm.init_vanilla_transformer(embedding_transformer_kwargs),
             )
             pm.init_embedding_network(embedding_net)
