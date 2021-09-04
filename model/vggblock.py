@@ -57,12 +57,15 @@ class VGGBlock(torch.nn.Module):
         input_dim: (int) input dimension
         conv_stride: the stride of the convolving kernel.
             Can be a single number or a tuple (sH, sW)  Default: 1
-        padding: implicit paddings on both sides of the input.
+        conv_padding: implicit paddings on both sides of the input for conv.
+            Can be a single number or a tuple (padH, padW). Default: None
+        pool_padding: implicit paddings on both sides of the input for pool.
             Can be a single number or a tuple (padH, padW). Default: None
         layer_norm: (bool) if layer norm is going to be applied. Default: False
         causal: (bool) if in causal.
-            kernel/padding/stride_size would be (1, ...) for 1D series.
-            padding = (1, ) Default: False
+            'kernel/padding/stride_size' would be (1, ...) for 1D series.
+            Set 'padding' = (0, 'dilation'*('kernel_size'-1)).
+            'conv_padding' and 'conv_padding' are not working. Default: False
     Shape:
         Input: BxCxTxfeat, i.e. (batch_size, input_size, timesteps, features)
         Output: BxCxTxfeat, i.e. (batch_size, input_size, timesteps, features)
@@ -77,8 +80,10 @@ class VGGBlock(torch.nn.Module):
         num_conv_layers,
         input_dim,
         conv_stride=1,
-        padding=None,
-        dilation=1,
+        conv_padding=None,
+        pool_padding=None,
+        conv_dilation=1,
+        pool_dilation=1,
         layer_norm=False,
         causal=False
     ):
@@ -91,10 +96,15 @@ class VGGBlock(torch.nn.Module):
         self.conv_kernel_size = _pair(conv_kernel_size, causal)
         self.pooling_kernel_size = _pair(pooling_kernel_size, causal)
         self.num_conv_layers = num_conv_layers
-        self.padding = (0, dilation * (self.conv_kernel_size[-1] - 1)) if causal else (
+        self.conv_padding = (0, conv_dilation * (self.conv_kernel_size[-1] - 1)) if causal else (
             tuple(e // 2 for e in self.conv_kernel_size)
-            if padding is None
-            else _pair(padding, causal)
+            if conv_padding is None
+            else _pair(conv_padding, causal)
+        )
+        self.pool_padding = (0, pool_dilation * (self.pooling_kernel_size[-1] - 1)) if causal else (
+            tuple(e // 2 for e in self.pooling_kernel_size)
+            if pool_padding is None
+            else _pair(pool_padding, causal)
         )
         self.conv_stride = _pair(conv_stride, causal)
 
@@ -105,8 +115,8 @@ class VGGBlock(torch.nn.Module):
                 out_channels,
                 self.conv_kernel_size,
                 stride=self.conv_stride,
-                padding=self.padding,
-                dilation=dilation,
+                padding=self.conv_padding,
+                dilation=conv_dilation,
             )
             self.layers.append(conv_op)
             if layer_norm:
@@ -120,7 +130,9 @@ class VGGBlock(torch.nn.Module):
         if self.pooling_kernel_size is not None:
             pool_op = nn.MaxPool2d(
                 kernel_size=self.pooling_kernel_size,
-                ceil_mode=True,)
+                padding=self.pool_padding,
+                ceil_mode=True,
+                dilation=pool_dilation)
             self.layers.append(pool_op)
             self.total_output_dim, self.output_dim = infer_conv_output_dim(
                 pool_op, input_dim, out_channels
