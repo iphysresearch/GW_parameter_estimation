@@ -948,8 +948,9 @@ def main():
             # Init embedding network #######################################################
             print('Init Embedding Network...')
             embedding_transformer_kwargs = dict(
-                noEmbedding=True,
-                vocab_size=200,  # for embeding only
+                isrel_pos_encoding=False,
+                ispso_encoding=True,
+                vocab_size=0,  # 0 for embeding only
                 ffn_num_hiddens=args.transformer_embedding.ffn_num_hiddens,
                 num_heads=args.transformer_embedding.num_heads,
                 num_layers=args.transformer_embedding.num_layers,
