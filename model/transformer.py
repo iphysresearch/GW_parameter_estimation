@@ -60,11 +60,12 @@ class DotProductAttention(nn.Module):
     def __init__(self, dropout, **kwargs):
         super(DotProductAttention, self).__init__(**kwargs)
         self.dropout = nn.Dropout(dropout)
-
+        self.attention_weights = None
     # `queries` 的形状：(`batch_size`, 查询的个数, `d`)
     # `keys` 的形状：(`batch_size`, “键－值”对的个数, `d`)
     # `values` 的形状：(`batch_size`, “键－值”对的个数, 值的维度)
     # `valid_lens` 的形状: (`batch_size`,) 或者 (`batch_size`, 查询的个数)
+
     def forward(self, queries, keys, values, valid_lens=None):
         d = queries.shape[-1]
         # 设置 `transpose_b=True` 为了交换 `keys` 的最后两个维度
@@ -72,6 +73,91 @@ class DotProductAttention(nn.Module):
 
         self.attention_weights = masked_softmax(scores, valid_lens)
         return torch.bmm(self.dropout(self.attention_weights), values)
+
+
+class RelativeGlobalAttention(nn.Module):
+    """
+    Ref: https://jaketae.github.io/study/relative-positional-encoding/
+    """
+    def __init__(self, key_size, query_size, value_size, num_hiddens,
+                 num_heads, dropout=0.1, bias=False, max_len=1024, **kwargs):
+        super().__init__(**kwargs)
+        assert key_size == query_size == value_size == num_hiddens
+        d_model = key_size
+        d_head, remainder = divmod(d_model, num_heads)
+        if remainder:
+            raise ValueError(
+                "incompatible `d_model` and `num_heads`"
+            )
+        self.max_len = max_len
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.key = nn.Linear(d_model, d_model, bias=bias)
+        self.value = nn.Linear(d_model, d_model, bias=bias)
+        self.query = nn.Linear(d_model, d_model, bias=bias)
+        self.dropout = nn.Dropout(dropout)
+        self.Er = nn.Parameter(torch.randn(max_len, d_head))
+        self.register_buffer(
+            "mask",
+            torch.tril(torch.ones(max_len, max_len))
+            .unsqueeze(0).unsqueeze(0)
+        )
+        # self.mask.shape = (1, 1, max_len, max_len)
+        self.attention = DotProductAttention(dropout)
+
+    def forward(self, queries, keys, values, valid_lens):
+        assert queries.shape == keys.shape == values.shape
+        x = queries
+        # x.shape == (batch_size, seq_len, d_model)
+        batch_size, seq_len, _ = x.shape
+
+        if seq_len > self.max_len:
+            raise ValueError(
+                "sequence length exceeds model capacity"
+            )
+
+        k_t = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
+        # k_t.shape = (batch_size, num_heads, d_head, seq_len)
+        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        # shape = (batch_size, num_heads, seq_len, d_head)
+
+        start = self.max_len - seq_len
+        Er_t = self.Er[start:, :].transpose(0, 1)
+        # Er_t.shape = (d_head, seq_len)
+        QEr = torch.matmul(q, Er_t)
+        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
+        Srel = self.skew(QEr)
+        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
+
+        QK_t = torch.matmul(q, k_t)
+        # QK_t.shape = (batch_size, num_heads, seq_len, seq_len)
+        attn = (QK_t + Srel) / math.sqrt(q.size(-1))
+        if valid_lens:  # TODO  整合 RelativeGlobalAttention 到 MultiHeadAttention 里
+            mask = self.mask[:, :, :seq_len, :seq_len]
+            # mask.shape = (1, 1, seq_len, seq_len)
+            attn = attn.masked_fill(mask == 0, float("-inf"))
+        # attn.shape = (batch_size, num_heads, seq_len, seq_len)
+        attn = F.softmax(attn, dim=-1)
+        out = torch.matmul(attn, v)
+        # out.shape = (batch_size, num_heads, seq_len, d_head)
+        self.attention.attention_weights = out
+        out = out.transpose(1, 2)
+        # out.shape == (batch_size, seq_len, num_heads, d_head)
+        out = out.reshape(batch_size, seq_len, -1)
+        # out.shape == (batch_size, seq_len, d_model)
+        return self.dropout(out)
+
+    def skew(self, QEr):
+        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
+        padded = F.pad(QEr, (1, 0))
+        # padded.shape = (batch_size, num_heads, seq_len, 1 + seq_len)
+        batch_size, num_heads, num_rows, num_cols = padded.shape
+        reshaped = padded.reshape(batch_size, num_heads, num_cols, num_rows)
+        # reshaped.size = (batch_size, num_heads, 1 + seq_len, seq_len)
+        Srel = reshaped[:, :, 1:, :]
+        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
+        return Srel
 
 
 class MultiHeadAttention(nn.Module):
@@ -180,11 +266,16 @@ class AddNorm(nn.Module):
 class EncoderBlock(nn.Module):
     def __init__(self, key_size, query_size, value_size, num_hiddens,
                  norm_shape, ffn_num_input, ffn_num_hiddens, num_heads,
-                 dropout, use_bias=False, **kwargs):
+                 dropout, use_bias=False, isrel_pos_encoding=False, **kwargs):
         super(EncoderBlock, self).__init__(**kwargs)
-        self.attention = MultiHeadAttention(key_size, query_size,
-                                            value_size, num_hiddens,
-                                            num_heads, dropout, use_bias)
+        if isrel_pos_encoding:
+            self.attention = RelativeGlobalAttention(key_size, query_size,
+                                                     value_size, num_hiddens,
+                                                     num_heads, dropout, use_bias)
+        else:
+            self.attention = MultiHeadAttention(key_size, query_size,
+                                                value_size, num_hiddens,
+                                                num_heads, dropout, use_bias)
         self.addnorm1 = AddNorm(norm_shape, dropout)
         self.ffn = PositionWiseFFN(ffn_num_input, ffn_num_hiddens,
                                    num_hiddens)
@@ -208,7 +299,7 @@ class TransformerEncoder(Encoder):
     def __init__(self, vocab_size, key_size, query_size, value_size,
                  num_hiddens, norm_shape, ffn_num_input, ffn_num_hiddens,
                  num_heads, num_layers, dropout, valid_lens,
-                 use_bias=False, ispso_encoding=True, **kwargs):
+                 use_bias=False, ispso_encoding=True, isrel_pos_encoding=False, **kwargs):
         super(TransformerEncoder, self).__init__(**kwargs)
         self.num_hiddens = num_hiddens
         self.valid_lens = valid_lens
@@ -220,7 +311,7 @@ class TransformerEncoder(Encoder):
                 "block" + str(i),
                 EncoderBlock(key_size, query_size, value_size, num_hiddens,
                              norm_shape, ffn_num_input, ffn_num_hiddens,
-                             num_heads, dropout, use_bias))
+                             num_heads, dropout, use_bias, isrel_pos_encoding))
 
     def forward(self, X, *args):
         # 因为位置编码值在 -1 和 1 之间，
