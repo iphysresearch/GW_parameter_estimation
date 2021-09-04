@@ -91,7 +91,7 @@ class VGGBlock(torch.nn.Module):
         self.conv_kernel_size = _pair(conv_kernel_size, causal)
         self.pooling_kernel_size = _pair(pooling_kernel_size, causal)
         self.num_conv_layers = num_conv_layers
-        self.conv_padding = (0, dilation * (self.conv_kernel_size[-1] - 1)) if causal else (
+        self.padding = (0, dilation * (self.conv_kernel_size[-1] - 1)) if causal else (
             tuple(e // 2 for e in self.conv_kernel_size)
             if padding is None
             else _pair(padding, causal)
