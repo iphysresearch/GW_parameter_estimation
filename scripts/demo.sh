@@ -6,7 +6,7 @@ export OMP_NUM_THREADS=1
 
 python ../model/main.py train new \
     --events_dir ../data/events_hdf5 \
-    --model_dir ../output/models/test_model \
+    --model_dir ../output/models/demo_model_vgg \
     --prior_dir demo.prior \
     --save_model_name model.pt \
     --waveform.sampling_frequency 4096 \
@@ -23,15 +23,15 @@ python ../model/main.py train new \
     --waveform.overlap 0.5 \
     --waveform.stimulated_whiten \
     --waveform.norm_params_kind minmax \
-    --waveform.target_optimal_snr 0 30 \
-    --train.epoch_size 50 \
-    --train.batch_size 8 \
+    --waveform.target_optimal_snr 0 18.6 \
+    --train.epoch_size 128 \
+    --train.batch_size 16 \
     --train.num_workers 0 \
-    --train.total_epochs 3 \
+    --train.total_epochs 1000 \
     --train.lr_flow 0.00001 \
     --train.lr_embedding 0.00001 \
     --train.lr_anneal_method cosine \
-    --train.output_freq 5 \
+    --train.output_freq 2 \
     --train.no_lr_annealing \
     --events.batch_size 4 \
     --events.nsamples_target_event 200 \
@@ -41,7 +41,7 @@ python ../model/main.py train new \
     --events.sample_rate 4096 \
     --events.start_time 1126259456.3999023 \
     --events.duration 8 \
-    --events.bilby_dir /Users/herb/Github/VisibleGWevents/Bilby-GWTC-1-Analysis-and-Verification/gwtc-1_analysis_results/downsampled_posterior_samples_v1.0.0/ \
+    --events.bilby_dir ../downsampled_posterior_samples_v1.0.0/ \
     --num_flow_steps 2 \
     rq-coupling \
     --rq_coupling_model.num_bins 8 \
