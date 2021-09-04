@@ -179,6 +179,15 @@ class PosteriorModel(object):
         print('after vgg:', self.input_shape)
         return vggblock
 
+    def init_cvt(self):
+        cvt = CvT(pm.input_shape[-2], pm.input_shape[-1], pm.input_shape[-3], 1000, 
+                  kernels=[(1,7), (1,3), (1,3)], 
+                  strides=[(1,4), (1,2), (1,2)])
+        print('before vgg:', self.input_shape)
+        self.input_shape = infer_conv_output_dim(cvt, self.input_shape)
+        print('after vgg:', self.input_shape)
+        return cvt
+
     def init_vanilla_transformer(self, kwargs):
         # Define input data structure of Transformer
         print('before init_vanilla_transformer:', self.input_shape)
@@ -1072,9 +1081,7 @@ def main():
             embedding_net = nn.Sequential(
                 pm.init_rearrange('b c h -> b c 1 h'),
                 # pm.init_rearrange('b (c t) h -> b c t h', c=2),
-                CvT(pm.input_shape[-2], pm.input_shape[-1], pm.input_shape[-3], 1000, 
-                            kernels=[(1,7), (1,3), (1,3)], 
-                            strides=[(1,4), (1,2), (1,2)])
+                pm.init_cvt(),
             )
             pm.init_embedding_network(embedding_net)
 
