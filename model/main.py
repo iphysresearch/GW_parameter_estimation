@@ -180,7 +180,7 @@ class PosteriorModel(object):
         return vggblock
 
     def init_cvt(self):
-        cvt = CvT(pm.input_shape[-2], pm.input_shape[-1], pm.input_shape[-3], 1000, 
+        cvt = CvT(self.input_shape[-2], self.input_shape[-1], self.input_shape[-3], 1000,
                   kernels=[(1,7), (1,3), (1,3)], 
                   strides=[(1,4), (1,2), (1,2)])
         print('before vgg:', self.input_shape)
