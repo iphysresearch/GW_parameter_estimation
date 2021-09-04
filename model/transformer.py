@@ -468,7 +468,6 @@ class TransformerResidualBlock(nn.Module):
             )
         self.transformer_block = TransformerEncoder(
             valid_lens=None,
-            noEmbedding=True,
             vocab_size=0,  # for embeding only
             key_size=norm_shape[1],
             query_size=norm_shape[1],
