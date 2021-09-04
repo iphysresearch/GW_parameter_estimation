@@ -208,13 +208,12 @@ class TransformerEncoder(Encoder):
     def __init__(self, vocab_size, key_size, query_size, value_size,
                  num_hiddens, norm_shape, ffn_num_input, ffn_num_hiddens,
                  num_heads, num_layers, dropout, valid_lens,
-                 use_bias=False, noEmbedding=False, **kwargs):
+                 use_bias=False, ispso_encoding=True, **kwargs):
         super(TransformerEncoder, self).__init__(**kwargs)
         self.num_hiddens = num_hiddens
         self.valid_lens = valid_lens
-        self.noEmbedding = noEmbedding
-        self.embedding = nn.Embedding(vocab_size, num_hiddens)
-        self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
+        self.embedding = nn.Embedding(vocab_size, num_hiddens) if vocab_size else None
+        self.pos_encoding = PositionalEncoding(num_hiddens, dropout) if ispso_encoding else (lambda x: x)
         self.blks = nn.Sequential()
         for i in range(num_layers):
             self.blks.add_module(
@@ -227,7 +226,7 @@ class TransformerEncoder(Encoder):
         # 因为位置编码值在 -1 和 1 之间，
         # 因此嵌入值乘以嵌入维度的平方根进行缩放，
         # 然后再与位置编码相加。
-        X = self.pos_encoding((X if self.noEmbedding else self.embedding(X)) * math.sqrt(self.num_hiddens))
+        X = self.pos_encoding((X if self.embedding is None else self.embedding(X)) * math.sqrt(self.num_hiddens))
         self.attention_weights = [None] * len(self.blks)
         for i, blk in enumerate(self.blks):
             X = blk(X, self.valid_lens)
