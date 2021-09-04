@@ -61,6 +61,8 @@ class VGGBlock(torch.nn.Module):
             Can be a single number or a tuple (padH, padW). Default: None
         pool_padding: implicit paddings on both sides of the input for pool.
             Can be a single number or a tuple (padH, padW). Default: None
+        conv_dilation: (int) dilation for conv. Default: 1
+        pool_dilation: (int) dilation for pooling. Default: 1
         layer_norm: (bool) if layer norm is going to be applied. Default: False
         causal: (bool) if in causal.
             'kernel/padding/stride_size' would be (1, ...) for 1D series.
