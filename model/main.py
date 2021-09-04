@@ -34,7 +34,7 @@ except ModuleNotFoundError as e:
                              js_divergence,
                              kl_divergence,
                              print_dict)
-    from conformer import Conformer
+    from conformer.encoder import ConformerEncoder
     from model.vggblock import VGGBlock_causal
     from model.cvt import CvT, Transformer, infer_conv_output_dim
 from einops.layers.torch import Rearrange
@@ -149,8 +149,8 @@ class PosteriorModel(object):
         self.embedding_net = embedding_net
         self.embedding_net.to(self.device)
 
-    def init_rearrange(self, pattern):
-        arange = Rearrange(pattern)
+    def init_rearrange(self, pattern, **kwargs):
+        arange = Rearrange(pattern, **kwargs)
         print('before Rearrange:', self.input_shape)
         self.input_shape = infer_conv_output_dim(arange, self.input_shape)
         print('before Rearrange:', self.input_shape)
@@ -777,6 +777,10 @@ def parse_args():
         '--events.duration', type=float, default='8', required=True)
     events_parent_parser.add_argument(
         '--events.bilby_dir', type=str, default=None)
+    # events_parent_parser.add_argument(
+    #     '--transformer_embedding.add_rel_pos_encoding', action='store_true', dest='isrel_pos_encoding')
+    # events_parent_parser.add_argument(
+    #     '--transformer_embedding.no_pso_encoding', action='store_false', dest='ispso_encoding')
 
     # Embedding network
     embedding_parent_parser = argparse.ArgumentParser(add_help=None)
@@ -914,6 +918,66 @@ def parse_args():
     return parser.parse_args(namespace=ns)
 
 
+def conv_bn_relu_block(X, **kwargs):
+    default_kwargs = dict(
+        channels=(32, 32, 384),
+        kernels=[(3, 7), (3, 5), 1],
+        strides=[(1, 2), (2, 2), 1],
+        padding=[1, 1, 1],
+    )
+    default_kwargs.update(kwargs)
+    default_kwargs['channels'] = (X.shape[1], ) + default_kwargs['channels']
+    channels = default_kwargs['channels']
+    kernels = default_kwargs['kernels']
+    strides = default_kwargs['strides']
+    padding = default_kwargs['padding']
+    conv1 = nn.Conv2d if isinstance(kernels[0], tuple) else nn.Conv1d
+    bn1 = nn.BatchNorm2d if isinstance(kernels[0], tuple) else nn.BatchNorm1d
+    conv2 = nn.Conv2d if isinstance(kernels[1], tuple) else nn.Conv1d
+    bn2 = nn.BatchNorm2d if isinstance(kernels[1], tuple) else nn.BatchNorm1d
+    conv3 = nn.Conv2d if isinstance(kernels[2], tuple) else nn.Conv1d
+    bn3 = nn.BatchNorm2d if isinstance(kernels[2], tuple) else nn.BatchNorm1d
+    convblock = nn.Sequential(
+        conv1(channels[0], channels[1], kernels[0], strides[0], padding[0]),
+        bn1(channels[1]),
+        nn.ReLU(inplace=True),
+        conv2(channels[1], channels[2], kernels[1], strides[1], padding[1]),
+        bn2(channels[2]),
+        nn.ReLU(inplace=True),
+        nn.Flatten(-2,-1) if isinstance(kernels[1], tuple) else nn.Identity(),
+        conv3(channels[2], channels[3], kernels[2], strides[2], padding[2]),
+        bn3(channels[3]),
+        #nn.Dropout(dropout_value),
+    )
+    return convblock, convblock(X)
+
+
+def transfomer_block(X, **kwargs):
+    default_kwargs = dict(
+        isrel_pos_encoding=False,
+        ispso_encoding=False,
+        vocab_size=0,  # 0 for embeding only
+        ffn_num_hiddens=1536,
+        num_heads=2,
+        num_layers=2,
+        dropout=0.1,
+        valid_lens=None,
+    )
+    default_kwargs.update(kwargs)
+    norm_shape = [X.shape[-2],
+                  X.shape[-1]]
+    default_kwargs.update({
+        'norm_shape': norm_shape,
+        'key_size': norm_shape[1],
+        'query_size': norm_shape[1],
+        'value_size': norm_shape[1],
+        'num_hiddens': norm_shape[1],
+        'ffn_num_input': norm_shape[1],
+    })
+
+    return TransformerEncoder(**default_kwargs), X
+
+
 def main():
     args = parse_args()
     print(args)
@@ -986,8 +1050,8 @@ def main():
             # Init embedding network #######################################################
             print('Init Embedding Network...')
             embedding_transformer_kwargs = dict(
-                isrel_pos_encoding=False,
-                ispso_encoding=True,
+                isrel_pos_encoding=True,
+                ispso_encoding=False,
                 vocab_size=0,  # 0 for embeding only
                 ffn_num_hiddens=args.transformer_embedding.ffn_num_hiddens,
                 num_heads=args.transformer_embedding.num_heads,
@@ -995,11 +1059,22 @@ def main():
                 dropout=args.transformer_embedding.dropout,
                 valid_lens=None,
             )
+            # embedding_net = nn.Sequential(
+            #     # pm.init_rearrange('b c h -> b c 1 h'),
+            #     pm.init_rearrange('b (c t) h -> b c t h', c=2),
+            #     pm.init_vggblock(),
+            #     pm.init_rearrange('b c h w -> b (c h) w'),
+            #     pm.init_vanilla_transformer(embedding_transformer_kwargs),
+            # )
+            # embedding_net = nn.Sequential(  #TODO
+            #     ConformerEncoder(input_dim=pm.input_shape[-1], device=pm.device),
+            # )
             embedding_net = nn.Sequential(
                 pm.init_rearrange('b c h -> b c 1 h'),
-                pm.init_vggblock(),
-                pm.init_rearrange('b c h w -> b (c h) w'),
-                pm.init_vanilla_transformer(embedding_transformer_kwargs),
+                # pm.init_rearrange('b (c t) h -> b c t h', c=2),
+                CvT(pm.input_shape[-2], pm.input_shape[-1], pm.input_shape[-3], 1000, 
+                            kernels=[(1,7), (1,3), (1,3)], 
+                            strides=[(1,4), (1,2), (1,2)])
             )
             pm.init_embedding_network(embedding_net)
 

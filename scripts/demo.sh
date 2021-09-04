@@ -55,7 +55,7 @@ python ../model/main.py train new \
     --transformer_embedding.ffn_num_hiddens 128 \
     --transformer_embedding.num_heads 1 \
     --transformer_embedding.num_layers 3 \
-    --transformer_embedding.dropout 0.1
+    --transformer_embedding.dropout 0.1 \
 
 # python ../model/main.py train existing \
 #     --events_dir ../data/events_hdf5 \
