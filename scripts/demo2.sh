@@ -6,7 +6,7 @@ export OMP_NUM_THREADS=1
 
 python ../model/main.py train new \
     --events_dir ../data/events_hdf5 \
-    --model_dir ../output/models/demo2_model2 \
+    --model_dir ../output/models/demo2_model3 \
     --prior_dir demo.prior \
     --save_model_name model.pt \
     --waveform.sampling_frequency 4096 \
@@ -25,7 +25,7 @@ python ../model/main.py train new \
     --waveform.norm_params_kind minmax \
     --waveform.target_optimal_snr 0 18.6 \
     --train.epoch_size 200 \
-    --train.batch_size 16 \
+    --train.batch_size 8 \
     --train.num_workers 0 \
     --train.total_epochs 50000 \
     --train.lr_flow 0.00001 \
@@ -43,8 +43,11 @@ python ../model/main.py train new \
     --events.duration 8 \
     --events.bilby_dir ../downsampled_posterior_samples_v1.0.0/ \
     --num_flow_steps 2 \
-    rq-coupling \
-    --rq_coupling_model.num_bins 8 \
+    umnn \
+    --umnn_model.integrand_net_layers 50 50 50 \
+    --umnn_model.cond_size 20 \
+    --umnn_model.nb_steps 20 \
+    --umnn_model.solver CCParallel \
     transformer \
     --transformer_cond.hidden_features 16 \
     --transformer_cond.num_blocks 2 \
