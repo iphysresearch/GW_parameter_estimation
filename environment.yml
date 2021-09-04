@@ -40,3 +40,6 @@ dependencies:
     - jupyterlab-unfold
     - -e .  # install package in development mode
     - umnn
+    - einops
+    - labml
+    - labml-app
