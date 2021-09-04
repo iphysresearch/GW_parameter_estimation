@@ -16,17 +16,11 @@ import torch
 import torch.nn as nn
 
 
-def _pair(v, causal):
-    if causal:
-        if isinstance(v, Iterable):
-            assert len(v) == 2, "len(v) != 2"
-            return (1, v[1])
-        return (1, v)
-    else:
-        if isinstance(v, Iterable):
-            assert len(v) == 2, "len(v) != 2"
-            return v
-        return tuple(repeat(v, 2))
+def _pair(v):
+    if isinstance(v, Iterable):
+        assert len(v) == 2, "len(v) != 2"
+        return v
+    return tuple(repeat(v, 2))
 
 
 def infer_conv_output_dim(conv_op, input_dim, sample_inchannel):
@@ -60,14 +54,12 @@ class VGGBlock_causal(torch.nn.Module):
         conv_padding: implicit paddings on both sides of the input for conv.
             Can be a single number or a tuple (padH, padW). Default: None
         pool_padding: implicit paddings on both sides of the input for pool.
-            Can be a single number or a tuple (padH, padW). Default: None
+            padding (int, tuple): the size of the padding.
+            If is `int`, uses the same padding in all boundaries.
+            If a 4-`tuple`, uses (`left`, `right`, `top`, `bottom`). Default: None
         conv_dilation: (int) dilation for conv. Default: 1
         pool_dilation: (int) dilation for pooling. Default: 1
         layer_norm: (bool) if layer norm is going to be applied. Default: False
-        causal: (bool) if in causal.
-            'kernel/padding/stride_size' would be (1, ...) for 1D series.
-            Set 'padding' = (0, 'dilation'*('kernel_size'-1)).
-            'conv_padding' and 'conv_padding' are not working. Default: False
     Shape:
         Input: BxCxTxfeat, i.e. (batch_size, input_size, timesteps, features)
         Output: BxCxTxfeat, i.e. (batch_size, input_size, timesteps, features)
@@ -80,14 +72,13 @@ class VGGBlock_causal(torch.nn.Module):
         conv_kernel_size,
         pooling_kernel_size,
         input_dim,
+        conv_stride,
         num_conv_layers=2,
-        conv_stride=1,
         conv_padding=None,
         pool_padding=None,
         conv_dilation=1,
         pool_dilation=1,
         layer_norm=False,
-        causal=False
     ):
         assert (
             input_dim is not None
@@ -95,29 +86,15 @@ class VGGBlock_causal(torch.nn.Module):
         super(VGGBlock_causal, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.conv_kernel_size = _pair(conv_kernel_size, causal)
-        self.pooling_kernel_size = _pair(pooling_kernel_size, causal)
-        self.num_conv_layers = num_conv_layers
-        self.conv_padding = (0, conv_dilation * (self.conv_kernel_size[-1] - 1)) if causal else (
-            tuple(e // 2 for e in self.conv_kernel_size)
-            if conv_padding is None
-            else _pair(conv_padding, causal)
-        )
-        self.pool_padding = (0, pool_dilation * (self.pooling_kernel_size[-1] - 1)) if causal else (
-            tuple(e // 2 for e in self.pooling_kernel_size)
-            if pool_padding is None
-            else _pair(pool_padding, causal)
-        )
-        self.conv_stride = _pair(conv_stride, causal)
 
         self.layers = nn.ModuleList()
         for layer in range(num_conv_layers):
             conv_op = nn.Conv2d(
                 in_channels if layer == 0 else out_channels,
                 out_channels,
-                self.conv_kernel_size,
-                stride=self.conv_stride,
-                padding=self.conv_padding,
+                conv_kernel_size,
+                stride=conv_stride,
+                padding=conv_padding,
                 dilation=conv_dilation,
             )
             self.layers.append(conv_op)
@@ -129,10 +106,11 @@ class VGGBlock_causal(torch.nn.Module):
                 input_dim = per_channel_dim
             self.layers.append(nn.ReLU())
 
-        if self.pooling_kernel_size is not None:
+        if pooling_kernel_size is not None:
+            self.layers.append(nn.ZeroPad2d(pool_padding))
             pool_op = nn.MaxPool2d(
-                kernel_size=self.pooling_kernel_size,
-                padding=self.pool_padding,
+                kernel_size=pooling_kernel_size,
+                # padding=pool_padding,
                 ceil_mode=True,
                 dilation=pool_dilation)
             self.layers.append(pool_op)
