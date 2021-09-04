@@ -22,7 +22,7 @@ except ModuleNotFoundError as e:
     import sys
     sys.path.insert(0, '../GWToolkit/')
     sys.path.insert(0, '..')
-    sys.path.insert(0, '../model/conformer/')
+    #sys.path.insert(0, '../model/conformer/')
     from gwtoolkit.gw import WaveformDataset
     from gwtoolkit.torch import (WaveformDatasetTorch, Normalize_params, Patching_data, ToTensor)
     from model import flows
@@ -34,7 +34,7 @@ except ModuleNotFoundError as e:
                              js_divergence,
                              kl_divergence,
                              print_dict)
-    from conformer.encoder import ConformerEncoder
+    #from conformer.encoder import ConformerEncoder
     from model.vggblock import VGGBlock_causal
     from model.cvt import CvT, Transformer, infer_conv_output_dim
 from einops.layers.torch import Rearrange
