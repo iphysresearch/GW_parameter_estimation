@@ -57,12 +57,13 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 class ConvAttention(nn.Module):
-    def __init__(self, dim, img_size, heads = 8, dim_head = 64, kernel_size=3, q_stride=1, k_stride=1, v_stride=1, dropout = 0.,
+    def __init__(self, dim, img_size_h, img_size_w, heads = 8, dim_head = 64, kernel_size=3, q_stride=1, k_stride=1, v_stride=1, dropout = 0.,
                  last_stage=False):
 
         super().__init__()
         self.last_stage = last_stage
-        self.img_size = img_size
+        self.img_size_w = img_size_w
+        self.img_size_h = img_size_h
         inner_dim = dim_head *  heads
         project_out = not (heads == 1 and dim_head == dim)
 
@@ -84,7 +85,7 @@ class ConvAttention(nn.Module):
             cls_token = x[:, 0]
             x = x[:, 1:]
             cls_token = rearrange(cls_token.unsqueeze(1), 'b n (h d) -> b h n d', h = h)
-        x = rearrange(x, 'b (l w) n -> b n l w', l=self.img_size, w=self.img_size)
+        x = rearrange(x, 'b (l w) n -> b n l w', l=self.img_size_w, w=self.img_size_h)
         q = self.to_q(x)
         q = rearrange(q, 'b (h d) l w -> b h (l w) d', h=h)
 
