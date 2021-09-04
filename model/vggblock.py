@@ -2,7 +2,8 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-# Ref: https://github.com/pytorch/fairseq/blob/14c5bd027f04aae9dbb32f1bd7b34591b61af97f/fairseq/modules/vggblock.py#L38
+# Ref: 
+# https://github.com/pytorch/fairseq/blob/14c5bd027f04aae9dbb32f1bd7b34591b61af97f/fairseq/modules/vggblock.py#L38
 #
 # Modified by He Wang. 2021/09/04
 
@@ -15,11 +16,17 @@ import torch
 import torch.nn as nn
 
 
-def _pair(v):
-    if isinstance(v, Iterable):
-        assert len(v) == 2, "len(v) != 2"
-        return v
-    return tuple(repeat(v, 2))
+def _pair(v, causal):
+    if causal:
+        if isinstance(v, Iterable):
+            assert len(v) == 2, "len(v) != 2"
+            return (1, v[1])
+        return (1, v)
+    else:
+        if isinstance(v, Iterable):
+            assert len(v) == 2, "len(v) != 2"
+            return v
+        return tuple(repeat(v, 2))
 
 
 def infer_conv_output_dim(conv_op, input_dim, sample_inchannel):
@@ -53,6 +60,9 @@ class VGGBlock(torch.nn.Module):
         padding: implicit paddings on both sides of the input.
             Can be a single number or a tuple (padH, padW). Default: None
         layer_norm: (bool) if layer norm is going to be applied. Default: False
+        causal: (bool) if in causal.
+            kernel/padding/stride_size would be (1, ...) for 1D series.
+            padding = (1, ) Default: False
     Shape:
         Input: BxCxTxfeat, i.e. (batch_size, input_size, timesteps, features)
         Output: BxCxTxfeat, i.e. (batch_size, input_size, timesteps, features)
@@ -69,6 +79,7 @@ class VGGBlock(torch.nn.Module):
         conv_stride=1,
         padding=None,
         layer_norm=False,
+        causal=False
     ):
         assert (
             input_dim is not None
@@ -76,15 +87,15 @@ class VGGBlock(torch.nn.Module):
         super(VGGBlock, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.conv_kernel_size = _pair(conv_kernel_size)
-        self.pooling_kernel_size = _pair(pooling_kernel_size)
+        self.conv_kernel_size = _pair(conv_kernel_size, causal)
+        self.pooling_kernel_size = _pair(pooling_kernel_size, causal)
         self.num_conv_layers = num_conv_layers
-        self.padding = (
+        self.padding = (0, self.conv_kernel_size[-1] - 1) if causal else (
             tuple(e // 2 for e in self.conv_kernel_size)
             if padding is None
-            else _pair(padding)
+            else _pair(padding, causal)
         )
-        self.conv_stride = _pair(conv_stride)
+        self.conv_stride = _pair(conv_stride, causal)
 
         self.layers = nn.ModuleList()
         for layer in range(num_conv_layers):
