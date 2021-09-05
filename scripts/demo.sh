@@ -6,7 +6,7 @@ export OMP_NUM_THREADS=1
 
 python ../model/main.py train new \
     --events_dir ../data/events_hdf5 \
-    --model_dir ../output/models/demo_model_vgg \
+    --model_dir ../output/models/demo_model_cvt2 \
     --prior_dir demo.prior \
     --save_model_name model.pt \
     --waveform.sampling_frequency 4096 \
@@ -28,8 +28,8 @@ python ../model/main.py train new \
     --train.batch_size 16 \
     --train.num_workers 0 \
     --train.total_epochs 1000 \
-    --train.lr_flow 0.00001 \
-    --train.lr_embedding 0.00001 \
+    --train.lr_flow 0.0001 \
+    --train.lr_embedding 0.0001 \
     --train.lr_anneal_method cosine \
     --train.output_freq 2 \
     --train.no_lr_annealing \
