@@ -41,5 +41,6 @@ dependencies:
     - -e .  # install package in development mode
     - umnn
     - einops
+    - simple-parsing
     - labml
     - labml-app
