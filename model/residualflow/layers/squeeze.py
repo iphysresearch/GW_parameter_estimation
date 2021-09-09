@@ -32,14 +32,26 @@ def unsqueeze(input, upscale_factor=2):
 def squeeze(input, downscale_factor=2):
     '''
     [:, C, H*r, W*r] -> [:, C*r^2, H, W]
+    [:, C, W*r] -> [:, C*r, W]
     '''
-    batch_size, in_channels, in_height, in_width = input.shape
-    out_channels = in_channels * (downscale_factor**2)
+    if len(input.shape) == 3:
+        batch_size, in_channels, in_width = input.shape
+        out_channels = in_channels * (downscale_factor**1)
 
-    out_height = in_height // downscale_factor
-    out_width = in_width // downscale_factor
+        out_width = in_width // downscale_factor
 
-    input_view = input.reshape(batch_size, in_channels, out_height, downscale_factor, out_width, downscale_factor)
+        input_view = input.reshape(batch_size, in_channels, out_width, downscale_factor)
 
-    output = input_view.permute(0, 1, 3, 5, 2, 4)
-    return output.reshape(batch_size, out_channels, out_height, out_width)
+        output = input_view.permute(0, 1, 3, 2)
+        return output.reshape(batch_size, out_channels, out_width)
+    else:
+        batch_size, in_channels, in_height, in_width = input.shape
+        out_channels = in_channels * (downscale_factor**2)
+
+        out_height = in_height // downscale_factor
+        out_width = in_width // downscale_factor
+
+        input_view = input.reshape(batch_size, in_channels, out_height, downscale_factor, out_width, downscale_factor)
+
+        output = input_view.permute(0, 1, 3, 5, 2, 4)
+        return output.reshape(batch_size, out_channels, out_height, out_width)

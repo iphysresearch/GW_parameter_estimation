@@ -71,6 +71,11 @@ class ActNorm1d(ActNormNd):
     def shape(self):
         return [1, -1]
 
+class ActNorm3d(ActNormNd):
+
+    @property
+    def shape(self):
+        return [1, -1, 1]
 
 class ActNorm2d(ActNormNd):
 

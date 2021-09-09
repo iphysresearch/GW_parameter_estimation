@@ -54,7 +54,7 @@ class ResidualFlow(nn.Module):
         block_type='resblock',
     ):
         super(ResidualFlow, self).__init__()
-        self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
+        self.n_scale = min(len(n_blocks), self._calc_n_scale_3dims(input_size) if len(input_size)==3 else self._calc_n_scale(input_size))
         self.n_blocks = n_blocks
         self.intermediate_dim = intermediate_dim
         self.factor_out = factor_out
@@ -89,7 +89,7 @@ class ResidualFlow(nn.Module):
         self.block_type = block_type
 
         if not self.n_scale > 0:
-            raise ValueError('Could not compute number of scales for input of' 'size (%d,%d,%d,%d)' % input_size)
+            raise ValueError('Could not compute number of scales for input of' f'size ({input_size})')
 
         self.transforms = self._build_net(input_size)
 
@@ -99,13 +99,16 @@ class ResidualFlow(nn.Module):
             self.build_multiscale_classifier(input_size)
 
     def _build_net(self, input_size):
-        _, c, h, w = input_size
+        if len(input_size) == 3:
+            _, c, w = input_size
+        else:
+            _, c, h, w = input_size
         transforms = []
         _stacked_blocks = StackediResBlocks if self.block_type == 'resblock' else StackedCouplingBlocks
         for i in range(self.n_scale):
             transforms.append(
                 _stacked_blocks(
-                    initial_size=(c, h, w),
+                    initial_size=(c, w) if len(input_size) == 3 else (c, h, w),
                     idim=self.intermediate_dim,
                     squeeze=(i < self.n_scale - 1),  # don't squeeze last layer
                     init_layer=self.init_layer if i == 0 else None,
@@ -136,7 +139,10 @@ class ResidualFlow(nn.Module):
                     learn_p=self.learn_p,
                 )
             )
-            c, h, w = c * 2 if self.factor_out else c * 4, h // 2, w // 2
+            if len(input_size) == 3:
+                c, w = c * 2 if self.factor_out else c * 2, w // 2
+            else:
+                c, h, w = c * 2 if self.factor_out else c * 4, h // 2, w // 2
         return nn.ModuleList(transforms)
 
     def _calc_n_scale(self, input_size):
@@ -148,21 +154,44 @@ class ResidualFlow(nn.Module):
             w = w // 2
         return n_scale
 
+    def _calc_n_scale_3dims(self, input_size):
+        _, _, w = input_size
+        n_scale = 0
+        while w >= 4:
+            n_scale += 1
+            w = w // 2
+        return n_scale        
+
     def calc_output_size(self, input_size):
-        n, c, h, w = input_size
-        if not self.factor_out:
-            k = self.n_scale - 1
-            return [[n, c * 4**k, h // 2**k, w // 2**k]]
-        output_sizes = []
-        for i in range(self.n_scale):
-            if i < self.n_scale - 1:
-                c *= 2
-                h //= 2
-                w //= 2
-                output_sizes.append((n, c, h, w))
-            else:
-                output_sizes.append((n, c, h, w))
-        return tuple(output_sizes)
+        if len(input_size) == 3:
+            n, c, w = input_size
+            if not self.factor_out:
+                k = self.n_scale - 1
+                return [[n, c * 2**k, w // 2**k]]
+            output_sizes = []
+            for i in range(self.n_scale):
+                if i < self.n_scale - 1:
+                    c *= 2
+                    w //= 2
+                    output_sizes.append((n, c, w))
+                else:
+                    output_sizes.append((n, c, w))
+            return tuple(output_sizes)
+        else:
+            n, c, h, w = input_size
+            if not self.factor_out:
+                k = self.n_scale - 1
+                return [[n, c * 4**k, h // 2**k, w // 2**k]]
+            output_sizes = []
+            for i in range(self.n_scale):
+                if i < self.n_scale - 1:
+                    c *= 2
+                    h //= 2
+                    w //= 2
+                    output_sizes.append((n, c, h, w))
+                else:
+                    output_sizes.append((n, c, h, w))
+            return tuple(output_sizes)
 
     def build_multiscale_classifier(self, input_size):
         n, c, h, w = input_size
@@ -289,7 +318,7 @@ class StackediResBlocks(layers.SequentialFlow):
         first_resblock=False,
         learn_p=False,
     ):
-
+        self.initial_size = initial_size
         chain = []
 
         # Parse vnorms
@@ -304,20 +333,33 @@ class StackediResBlocks(layers.SequentialFlow):
 
         def _actnorm(size, fc):
             if fc:
-                return FCWrapper(layers.ActNorm1d(size[0] * size[1] * size[2]))
+                if len(size) == 2:
+                    return FCWrapper(layers.ActNorm1d(size[0] * size[1]))
+                else:
+                    return FCWrapper(layers.ActNorm1d(size[0] * size[1] * size[2]))
             else:
-                return layers.ActNorm2d(size[0])
+                if len(size) == 2:
+                    return layers.ActNorm3d(size[0])
+                else:
+                    return layers.ActNorm2d(size[0])
 
         def _quadratic_layer(initial_size, fc):
             if fc:
-                c, h, w = initial_size
-                dim = c * h * w
+                if len(initial_size) == 2:
+                    c, w = initial_size
+                    dim = c * w
+                else:
+                    c, h, w = initial_size
+                    dim = c * h * w
                 return FCWrapper(layers.InvertibleLinear(dim))
             else:
-                return layers.InvertibleConv2d(initial_size[0])
+                return layers.InvertibleConv2d(initial_size[0])  # GLOW.py
 
         def _lipschitz_layer(fc):
-            return base_layers.get_linear if fc else base_layers.get_conv2d
+            if len(initial_size) == 2:
+                return base_layers.get_linear if fc else base_layers.get_conv1d
+            else:
+                return base_layers.get_linear if fc else base_layers.get_conv2d
 
         def _resblock(initial_size, fc, idim=idim, first_resblock=False):
             if fc:
@@ -355,7 +397,7 @@ class StackediResBlocks(layers.SequentialFlow):
                     _codomains = codomains
                 nnet = []
                 if not first_resblock and preact:
-                    if batchnorm: nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                    if batchnorm: nnet.append(layers.MovingBatchNorm2d(initial_size[0]))  # normalization.py
                     nnet.append(ACT_FNS[activation_fn](False))
                 nnet.append(
                     _lipschitz_layer(fc)(
@@ -397,7 +439,10 @@ class StackediResBlocks(layers.SequentialFlow):
         if first_resblock and fc_actnorm: chain.append(_actnorm(initial_size, True))
 
         if squeeze:
-            c, h, w = initial_size
+            if len(initial_size) == 2:
+                c, w = initial_size
+            else:
+                c, h, w = initial_size
             for i in range(n_blocks):
                 if quadratic: chain.append(_quadratic_layer(initial_size, fc))
                 chain.append(_resblock(initial_size, fc, first_resblock=first_resblock and (i == 0)))
@@ -427,8 +472,12 @@ class FCNet(nn.Module):
     ):
         super(FCNet, self).__init__()
         self.input_shape = input_shape
-        c, h, w = self.input_shape
-        dim = c * h * w
+        if len(input_shape) == 2:
+            c, w = self.input_shape
+            dim = c * w
+        else:
+            c, h, w = self.input_shape
+            dim = c * h * w
         nnet = []
         last_dim = dim // div_in
         if preact: nnet.append(ACT_FNS[activation_fn](False))
