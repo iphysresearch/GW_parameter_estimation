@@ -143,7 +143,7 @@ class PosteriorModel(object):
         arange = Rearrange(pattern, **kwargs)
         print('before Rearrange:', self.input_shape)
         self.input_shape = infer_conv_output_dim(arange, self.input_shape)
-        print('before Rearrange:', self.input_shape)
+        print('after Rearrange:', self.input_shape)
         return arange
 
     def init_vggblock(self):
