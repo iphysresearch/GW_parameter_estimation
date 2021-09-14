@@ -2,9 +2,9 @@ from nflows import distributions, flows, transforms, utils
 import torch
 from torch.nn import functional as F
 # import nflows.nn.nets as nn_
-from model.resnet import ResidualNet
-from model.transformer import TransformerResidualNet
-from model.umnn import UMNNCouplingTransform
+from resnet import ResidualNet
+from transformer import TransformerResidualNet
+from umnn import UMNNCouplingTransform
 import time
 
 

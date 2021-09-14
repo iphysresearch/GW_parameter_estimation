@@ -3,7 +3,7 @@ from torch import nn
 from einops import repeat
 from itertools import repeat as repeat_
 from einops.layers.torch import Rearrange
-from .cvt_module import ConvAttention, PreNorm, FeedForward
+from cvt_module import ConvAttention, PreNorm, FeedForward
 import numpy as np
 from collections.abc import Iterable
 
