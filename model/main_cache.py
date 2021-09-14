@@ -4,29 +4,39 @@
 import os
 # os.environ['OMP_NUM_THREADS'] = str(1)
 # os.environ['MKL_NUM_THREADS'] = str(1)
+import argparse
 try:
     from gwtoolkit.gw import WaveformDataset
     from gwtoolkit.torch import (WaveformDatasetTorch, Normalize_params, Patching_data, ToTensor)
+    from model import flows
+    from model.transformer import TransformerEncoder
+    from model.utils import (MultipleOptimizer,
+                             MultipleScheduler,
+                             ffname,
+                             writer_row,
+                             js_divergence,
+                             kl_divergence,
+                             print_dict)
 except ModuleNotFoundError as e:
-    print(e, "\nLoading from "+'GWToolkit/')
+    print(e)
     import sys
-    sys.path.insert(0, 'GWToolkit/')
-    # sys.path.insert(0, '../model/conformer/')
+    sys.path.insert(0, '../GWToolkit/')
+    sys.path.insert(0, '..')
+    #sys.path.insert(0, '../model/conformer/')
     from gwtoolkit.gw import WaveformDataset
     from gwtoolkit.torch import (WaveformDatasetTorch, Normalize_params, Patching_data, ToTensor)
-
-import flows
-from transformer import TransformerEncoder
-from utils import (MultipleOptimizer,
-                   MultipleScheduler,
-                   ffname,
-                   writer_row,
-                   js_divergence,
-                   kl_divergence,
-                   print_dict)
-# from conformer.encoder import ConformerEncoder
-from vggblock import VGGBlock_causal
-from cvt import CvT, Transformer, infer_conv_output_dim
+    from model import flows
+    from model.transformer import TransformerEncoder
+    from model.utils import (MultipleOptimizer,
+                             MultipleScheduler,
+                             ffname,
+                             writer_row,
+                             js_divergence,
+                             kl_divergence,
+                             print_dict)
+    #from conformer.encoder import ConformerEncoder
+    from model.vggblock import VGGBlock_causal
+    from model.cvt import CvT, Transformer, infer_conv_output_dim
 from einops.layers.torch import Rearrange
 import time
 from pathlib import Path
@@ -658,6 +668,263 @@ class PosteriorModel(object):
 
         # Store the list of detectors the model was trained with
         # self.detectors = checkpoint['detectors']
+
+
+class Nestedspace(argparse.Namespace):
+    def __setattr__(self, name, value):
+        if '.' in name:
+            group, name = name.split('.', 1)
+            ns = getattr(self, group, Nestedspace())
+            setattr(ns, name, value)
+            self.__dict__[group] = ns
+        else:
+            self.__dict__[name] = value
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description=('Model the gravitational-wave parameter '
+                     'posterior distribution with neural networks.'))
+
+    # dir
+    dir_parent_parser = argparse.ArgumentParser(add_help=False)
+    dir_parent_parser.add_argument('--events_dir', type=str, required=True)
+    dir_parent_parser.add_argument('--model_dir', type=str, required=True)
+    dir_parent_parser.add_argument('--prior_dir', type=str, default=None)
+    dir_parent_parser.add_argument('--save_model_name', type=str, required=True)
+    dir_parent_parser.add_argument('--no_cuda', action='store_false', dest='cuda')
+
+    # waveform: WaveformDataset
+    waveform_parent_parser = argparse.ArgumentParser(add_help=None)
+    waveform_parent_parser.add_argument(
+        '--waveform.sampling_frequency', type=int, default='4096', required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.duration', type=int, default='8', required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.conversion',
+        choices=['BBH', 'BNS'],
+        default='BBH',
+        required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.waveform_approximant',
+        choices=['IMRPhenomPv2', 'SEOBNRv4P'],  # TODO
+        default='IMRPhenomPv2',
+        required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.reference_frequency', type=float, default='50', required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.minimum_frequency', type=float, default='20', required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.base',
+        choices=['bilby', 'pycbc'],  # TODO
+        default='bilby',
+        required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.detectors',
+        nargs='+',
+        required=True)
+    # waveform: WaveformDatasetTorch
+    waveform_parent_parser.add_argument(
+        '--waveform.target_time', type=float, default='1126259462.3999023', required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.buffer_time', type=float, default='2')
+    waveform_parent_parser.add_argument(
+        '--waveform.patch_size', type=float, default='0.5', required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.overlap', type=float, default='0.5', required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.stimulated_whiten', action='store_true')
+    waveform_parent_parser.add_argument(
+        '--waveform.norm_params_kind', type=str, default='minmax', required=True)
+    waveform_parent_parser.add_argument(
+        '--waveform.target_optimal_snr', nargs='+', type=float, default=(0, 0.))
+
+    # train
+    train_parent_parser = argparse.ArgumentParser(add_help=None)
+    train_parent_parser.add_argument(
+        '--train.epoch_size', type=int, default='512')
+    train_parent_parser.add_argument(
+        '--train.batch_size', type=int, default='512')
+    train_parent_parser.add_argument(
+        '--train.num_workers', type=int, default='16')
+    train_parent_parser.add_argument(
+        '--train.total_epochs', type=int, default='10')
+    train_parent_parser.add_argument(
+        '--train.lr_flow', type=float, default='0.0001')
+    train_parent_parser.add_argument(
+        '--train.lr_embedding', type=float, default='0.0001')
+    train_parent_parser.add_argument(
+        '--train.lr_anneal_method', choices=['step', 'cosine', 'cosineWR'], default='step')
+    train_parent_parser.add_argument(
+        '--train.no_lr_annealing', action='store_false', dest='train.lr_annealing')
+    train_parent_parser.add_argument(
+        '--train.steplr_gamma', type=float, default=0.5)
+    train_parent_parser.add_argument(
+        '--train.steplr_step_size', type=int, default=80)
+    train_parent_parser.add_argument(
+        '--train.output_freq', type=int, default='50')
+    train_parent_parser.add_argument('--no_save', action='store_false',
+                                     dest='save')
+
+    # inference events
+    events_parent_parser = argparse.ArgumentParser(add_help=None)
+    events_parent_parser.add_argument(
+        '--events.batch_size', type=int, default='4', required=True)
+    events_parent_parser.add_argument(
+        '--events.nsamples_target_event', type=int, default='100', required=True)
+    events_parent_parser.add_argument(
+        '--events.event', type=str, default='GW150914', required=True)
+    events_parent_parser.add_argument(
+        '--events.flow', type=float, default='50', required=True)
+    events_parent_parser.add_argument(
+        '--events.fhigh', type=float, default='250', required=True)
+    events_parent_parser.add_argument(
+        '--events.sample_rate', type=int, default='4096')
+    events_parent_parser.add_argument(
+        '--events.start_time', type=float, default='1126259456.3999023', required=True)
+    events_parent_parser.add_argument(
+        '--events.duration', type=float, default='8', required=True)
+    events_parent_parser.add_argument(
+        '--events.bilby_dir', type=str, default=None)
+    # events_parent_parser.add_argument(
+    #     '--transformer_embedding.add_rel_pos_encoding', action='store_true', dest='isrel_pos_encoding')
+    # events_parent_parser.add_argument(
+    #     '--transformer_embedding.no_pso_encoding', action='store_false', dest='ispso_encoding')
+
+    # Embedding network
+    embedding_parent_parser = argparse.ArgumentParser(add_help=None)
+    embedding_parent_parser.add_argument(
+        '--transformer_embedding.ffn_num_hiddens', type=int, default='128')
+    embedding_parent_parser.add_argument(
+        '--transformer_embedding.num_heads', type=int, default='2')
+    embedding_parent_parser.add_argument(
+        '--transformer_embedding.num_layers', type=int, default='6')
+    embedding_parent_parser.add_argument(
+        '--transformer_embedding.dropout', type=float, default='0.1')
+
+    # Subprograms
+
+    mode_subparsers = parser.add_subparsers(title='mode', dest='mode')
+    mode_subparsers.required = True
+
+    # 1 ##      [train]/inference
+    train_parser = mode_subparsers.add_parser(
+        'train', description=('Train a network.'))
+
+    train_subparsers = train_parser.add_subparsers(dest='model_source')
+    train_subparsers.required = True
+
+    # 2.1 ##    [train] - [new]/existing
+    train_new_parser = train_subparsers.add_parser(
+        'new', description=('Build and train a network.'),
+        parents=[dir_parent_parser, waveform_parent_parser, train_parent_parser, events_parent_parser])
+    train_new_parser.add_argument(
+        '--num_flow_steps', type=int, required=True)
+
+    # 2.2 ##    [train] - new/[existing]
+    train_subparsers.add_parser(
+        'existing',
+        description=('Load a network from file and continue training.'),
+        parents=[dir_parent_parser, waveform_parent_parser, train_parent_parser, events_parent_parser])
+
+    # 2.1.(1) (coupling function) [train] - [new]/existing
+    type_subparsers = train_new_parser.add_subparsers(dest='model_type')
+    type_subparsers.required = True
+
+    # (coupling function) [train] - [new]/existing - [rq-coupling]/umnn
+    coupling_parser_dict = {
+        'rq-coupling': type_subparsers.add_parser(
+            'rq-coupling',
+            description=('Build and train a flow using re-coupling.'),
+        )
+    }
+    coupling_parser_dict['rq-coupling'].add_argument(
+        '--rq_coupling_model.num_bins', type=int, required=True)
+    coupling_parser_dict['rq-coupling'].add_argument(
+        '--rq_coupling_model.tail_bound', type=float, default=1.0)
+    coupling_parser_dict['rq-coupling'].add_argument(
+        '--rq_coupling_model.apply_unconditional_transform', action='store_true')
+    # rq-coupling \
+    # --rq_coupling_model.num_bins 8 \
+
+    # (coupling function) [train] - [new]/existing - rq-coupling/[umnn]
+    coupling_parser_dict['umnn'] = type_subparsers.add_parser(
+        'umnn',
+        description=('Build and train a flow using UMNN.'),
+    )
+    coupling_parser_dict['umnn'].add_argument(
+        '--umnn_model.integrand_net_layers', type=int, nargs='+', default=[50, 50, 50])
+    coupling_parser_dict['umnn'].add_argument(
+        '--umnn_model.cond_size', type=float, default=20)
+    coupling_parser_dict['umnn'].add_argument(
+        '--umnn_model.nb_steps', type=float, default=20)
+    coupling_parser_dict['umnn'].add_argument(
+        '--umnn_model.solver', type=str, default="CCParallel")
+    # umnn \
+    # --umnn_model.integrand_net_layers 50 50 50 \
+    # --umnn_model.cond_size 20 \
+    # --umnn_model.nb_steps 20 \
+    # --umnn_model.solver CCParallel \
+
+    # 2.1.(2) (conditioner function)  [train] - [new]/existing - (coupling function)
+    conditioner_parser_dict = {}
+    for coupling_name, coupling_parser in coupling_parser_dict.items():
+        conditioner_parser_dict[coupling_name] = {}
+        conditioner_subparsers = coupling_parser.add_subparsers(dest='conditioner_type')
+        conditioner_subparsers.required = True
+
+        # (conditioner function) [train] - [new]/existing - [rq-coupling]/[umnn] - [resnet]/transformer
+        conditioner_parser_dict[coupling_name] = conditioner_subparsers.add_parser(
+            'resnet',
+            description=('Build and train a flow with ResNet conditioner.'),
+        )
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--resnet_cond.hidden_dims', type=int, required=True)
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--resnet_cond.activation',
+            choices=['relu', 'leaky_relu', 'elu'],
+            default='relu')
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--resnet_cond.dropout', type=float, default=0.0)
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--resnet_cond.num_blocks', type=int, default=2)
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--resnet_cond.batch_norm', action='store_true')
+    # resnet \
+    # --resnet_cond.hidden_dims 512 \
+    # --resnet_cond.activation elu \
+    # --resnet_cond.dropout 0.1 \
+    # --resnet_cond.num_blocks 10 \
+    # --resnet_cond.batch_norm
+
+        # (conditioner function) [train] - [new]/existing - [rq-coupling]/[umnn] - resnet/[transformer]
+        conditioner_parser_dict[coupling_name] = conditioner_subparsers.add_parser(
+            'transformer',
+            description=('Build and train a flow with vanilla Transformer conditioner.'),
+            parents=[embedding_parent_parser],
+        )
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--transformer_cond.hidden_features', type=int, required=True)
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--transformer_cond.num_blocks', type=int, required=True)
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--transformer_cond.ffn_num_hiddens', type=int, required=True)
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--transformer_cond.num_heads', type=int, required=True)
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--transformer_cond.num_layers', type=int, required=True)
+        conditioner_parser_dict[coupling_name].add_argument(
+            '--transformer_cond.dropout', type=float, required=True)
+    # transformer \
+    # --transformer_cond.hidden_features 4 \
+    # --transformer_cond.num_blocks 2 \
+    # --transformer_cond.ffn_num_hiddens 16 \
+    # --transformer_cond.num_heads 2 \
+    # --transformer_cond.num_layers 2 \
+    # --transformer_cond.dropout 0.1
+
+    ns = Nestedspace()
+    return parser.parse_args(namespace=ns)
 
 
 def conv_bn_relu_block(X, **kwargs):
