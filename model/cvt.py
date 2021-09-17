@@ -55,7 +55,7 @@ class CvT(nn.Module):
 
         # #### Stage 1 #######
         conv1 = nn.Conv2d(in_channels, dim, _pair(kernels[0]), _pair(strides[0]), 2)
-        _, h, w = infer_conv_output_dim(conv1, [in_channels, image_size_h, image_size_w])
+        _, h, w = infer_output_dim(conv1, [in_channels, image_size_h, image_size_w])
         self.stage1_conv_embed = nn.Sequential(
             conv1,
             Rearrange('b c h w -> b (h w) c', h=h, w=w),
@@ -72,7 +72,7 @@ class CvT(nn.Module):
         scale = heads[1]//heads[0]
         dim = scale*dim
         conv2 = nn.Conv2d(in_channels, dim, _pair(kernels[1]), _pair(strides[1]), 1)
-        _, h, w = infer_conv_output_dim(conv2, [in_channels, h, w])
+        _, h, w = infer_output_dim(conv2, [in_channels, h, w])
         self.stage2_conv_embed = nn.Sequential(
             conv2,
             Rearrange('b c h w -> b (h w) c', h=h, w=w),
@@ -89,7 +89,7 @@ class CvT(nn.Module):
         scale = heads[2] // heads[1]
         dim = scale * dim
         conv3 = nn.Conv2d(in_channels, dim, _pair(kernels[2]), _pair(strides[2]), 1)
-        _, h, w = infer_conv_output_dim(conv3, [in_channels, h, w])
+        _, h, w = infer_output_dim(conv3, [in_channels, h, w])
         self.stage3_conv_embed = nn.Sequential(
             conv3,
             Rearrange('b c h w -> b (h w) c', h=h, w=w),
