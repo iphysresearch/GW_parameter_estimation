@@ -179,7 +179,7 @@ class PosteriorModel(object):
         print('\tafter vgg:', self.input_shape)
         return cvt
 
-    def init_vanilla_transformer(self, kwargs):
+    def init_vanilla_transformer(self, **kwargs):
         # Define input data structure of Transformer
         print('\tbefore init_vanilla_transformer:', self.input_shape)
         norm_shape = self.input_shape
