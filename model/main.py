@@ -4,6 +4,7 @@
 import os
 # os.environ['OMP_NUM_THREADS'] = str(1)
 # os.environ['MKL_NUM_THREADS'] = str(1)
+# os.environ['PYTHONWARNINGS'] = 'ignore:semaphore_tracker:UserWarning'
 try:
     from gwtoolkit.gw import WaveformDataset
     from gwtoolkit.torch import (WaveformDatasetTorch, Normalize_params, Patching_data, ToTensor)
@@ -26,7 +27,7 @@ from utils import (MultipleOptimizer,
                    print_dict)
 # from conformer.encoder import ConformerEncoder
 from vggblock import VGGBlock_causal
-from cvt import CvT, Transformer, infer_conv_output_dim
+from cvt import CvT, Transformer, infer_output_dim
 from einops.layers.torch import Rearrange
 import time
 from pathlib import Path
@@ -141,12 +142,12 @@ class PosteriorModel(object):
 
     def init_rearrange(self, pattern, **kwargs):
         arange = Rearrange(pattern, **kwargs)
-        print('before Rearrange:', self.input_shape)
-        self.input_shape = infer_conv_output_dim(arange, self.input_shape)
-        print('after Rearrange:', self.input_shape)
+        print('\tbefore Rearrange:', self.input_shape)
+        self.input_shape = infer_output_dim(arange, self.input_shape)
+        print('\tafter Rearrange:', self.input_shape)
         return arange
 
-    def init_vggblock(self):
+    def init_vggblock(self, **kwargs):
         # (batch_size, num_channel, time_step, patch_size) => VGGBlock
         input_dim = self.input_shape[-1]
         vggblock = VGGBlock_causal(
@@ -164,25 +165,24 @@ class PosteriorModel(object):
             layer_norm=False,
         )
 
-        print('before vgg:', self.input_shape)
-        self.input_shape = infer_conv_output_dim(vggblock, self.input_shape)
-        print('after vgg:', self.input_shape)
+        print('\tbefore vgg:', self.input_shape)
+        self.input_shape = infer_output_dim(vggblock, self.input_shape)
+        print('\tafter vgg:', self.input_shape)
         return vggblock
 
     def init_cvt(self):
         cvt = CvT(self.input_shape[-2], self.input_shape[-1], self.input_shape[-3], 1000,
                   kernels=[(1,7), (1,3), (1,3)],
                   strides=[(1,4), (1,2), (1,2)])
-        print('before vgg:', self.input_shape)
-        self.input_shape = infer_conv_output_dim(cvt, self.input_shape)
-        print('after vgg:', self.input_shape)
+        print('\tbefore vgg:', self.input_shape)
+        self.input_shape = infer_output_dim(cvt, self.input_shape)
+        print('\tafter vgg:', self.input_shape)
         return cvt
 
     def init_vanilla_transformer(self, kwargs):
         # Define input data structure of Transformer
-        print('before init_vanilla_transformer:', self.input_shape)
+        print('\tbefore init_vanilla_transformer:', self.input_shape)
         norm_shape = self.input_shape
-        print(self.input_shape)
         kwargs.update({
             'norm_shape': norm_shape,
             'key_size': norm_shape[1],
@@ -192,6 +192,7 @@ class PosteriorModel(object):
             'ffn_num_input': norm_shape[1],
         })
         self.embedding_transformer_kwargs = kwargs
+        print('\tafter init_vanilla_transformer:', self.input_shape)
         print('\tInit a vanilla transformer:')
         print_dict(kwargs, 3, '\t\t')
         return TransformerEncoder(**kwargs)
