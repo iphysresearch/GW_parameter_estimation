@@ -15,7 +15,7 @@ def _pair(v):
     return tuple(repeat_(v, 2))
 
 
-def infer_conv_output_dim(conv_op, input_shape):
+def infer_output_dim(conv_op, input_shape):
     sample_bsz = 1
     x = torch.randn(sample_bsz, *input_shape)
     # N x C x H x W
