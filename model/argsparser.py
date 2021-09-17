@@ -32,15 +32,15 @@ class VanillaTransformerParameters:
     # normalized shape of input data (need to be pre-defined)
     norm_shape: Union[list, None] = None
     # key_size (need to be pre-defined)
-    key_size: int = None
+    key_size: Union[int, None] = None
     # query_size (need to be pre-defined)
-    query_size: int = None
+    query_size: Union[int, None] = None
     # value_size (need to be pre-defined)
-    value_size: int = None
+    value_size: Union[int, None] = None
     # numbers features of input data (need to be pre-defined)
-    num_hiddens: int = None
+    num_hiddens: Union[int, None] = None
     # ffn_num_input (need to be pre-defined)
-    ffn_num_input: int = None
+    ffn_num_input: Union[int, None] = None
 
 
 @dataclass
