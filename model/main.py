@@ -12,9 +12,10 @@ except ModuleNotFoundError as e:
     print(e, "\nLoading from "+'GWToolkit/')
     import sys
     sys.path.insert(0, 'GWToolkit/')
-    # sys.path.insert(0, '../model/conformer/')
+    sys.path.insert(0, 'model/conformer/')
     from gwtoolkit.gw import WaveformDataset
     from gwtoolkit.torch import (WaveformDatasetTorch, Normalize_params, Patching_data, ToTensor)
+    from conformer.encoder import ConformerEncoder
 
 import flows
 from transformer import TransformerEncoder
@@ -25,7 +26,7 @@ from utils import (MultipleOptimizer,
                    js_divergence,
                    kl_divergence,
                    print_dict)
-# from conformer.encoder import ConformerEncoder
+
 from vggblock import VGGBlock_causal
 from cvt import CvT, Transformer, infer_output_dim
 from einops.layers.torch import Rearrange
@@ -165,23 +166,30 @@ class PosteriorModel(object):
             layer_norm=False,
         )
 
-        print('\tbefore vgg:', self.input_shape)
+        print('\tbefore VGG:', self.input_shape)
         self.input_shape = infer_output_dim(vggblock, self.input_shape)
-        print('\tafter vgg:', self.input_shape)
+        print('\tafter VGG:', self.input_shape)
         return vggblock
 
-    def init_cvt(self):
+    def init_cvt(self, **kwargs):
         cvt = CvT(self.input_shape[-2], self.input_shape[-1], self.input_shape[-3], 1000,
-                  kernels=[(1,7), (1,3), (1,3)],
-                  strides=[(1,4), (1,2), (1,2)])
-        print('\tbefore vgg:', self.input_shape)
+                  kernels=[(1, 7), (1, 3), (1, 3)],
+                  strides=[(1, 4), (1, 2), (1, 2)])
+        print('\tbefore CvT:', self.input_shape)
         self.input_shape = infer_output_dim(cvt, self.input_shape)
-        print('\tafter vgg:', self.input_shape)
+        print('\tafter CvT:', self.input_shape)
         return cvt
+
+    def init_conformer(self, **kwargs):
+        conformer = ConformerEncoder(input_dim=self.input_shape[-1], device=self.device)
+        print('\tbefore Conformer:', self.input_shape)
+        self.input_shape = infer_output_dim(conformer, self.input_shape)
+        print('\tafter Conformer:', self.input_shape)
+        return conformer
 
     def init_vanilla_transformer(self, **kwargs):
         # Define input data structure of Transformer
-        print('\tbefore init_vanilla_transformer:', self.input_shape)
+        print('\tbefore vanilla Transformer:', self.input_shape)
         norm_shape = self.input_shape
         kwargs.update({
             'norm_shape': norm_shape,
@@ -192,8 +200,8 @@ class PosteriorModel(object):
             'ffn_num_input': norm_shape[1],
         })
         self.embedding_transformer_kwargs = kwargs
-        print('\tafter init_vanilla_transformer:', self.input_shape)
-        print('\tInit a vanilla transformer:')
+        print('\tafter vanilla Transformer:', self.input_shape)
+        print('\tInit a vanilla Transformer:')
         print_dict(kwargs, 3, '\t\t')
         return TransformerEncoder(**kwargs)
 
