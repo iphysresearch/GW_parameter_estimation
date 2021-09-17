@@ -1,10 +1,85 @@
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Union, List, Literal
 from pathlib import Path
-from simple_parsing import ArgumentParser, subparsers
+from simple_parsing import ArgumentParser  # subparsers
 from simple_parsing.helpers import Serializable
 from simple_parsing.helpers.serialization import encode, register_decoding_fn
 # https://github.com/lebrice/SimpleParsing
+
+
+@dataclass
+class ResNetConditioner:
+    """HyperParameters for ResNet Conditioner
+    """
+    # name of the task
+    name: str = "ResNetConditioner"
+    # number of hidden neurals
+    hidden_dims: int = 512
+    # activation function
+    activation: Literal['relu', 'leaky_relu', 'elu'] = 'relu'
+    # dropout
+    dropout: float = 0.0
+    # num_blocks
+    num_blocks: int = 2
+    # batch_norm
+    batch_norm: bool = True
+
+
+@dataclass
+class TransformerConditioner:
+    """HyperParameters for Transformer Conditioner
+    """
+    # name of the task
+    name: str = "TransformerConditioner"
+    # hidden_features
+    hidden_features: int = 4
+    # number of hidden neurals in FFN
+    ffn_num_hiddens: int = 16
+    # number of heads for self-attention
+    num_heads: int = 2
+    # num_blocks
+    num_blocks: int = 2
+    # number of the transformer block
+    num_layers: int = 2
+    # dropout probability
+    dropout: float = 0.1
+
+
+@dataclass
+class RQNSFCFlow:
+    """HyperParameters for RQ-NSF(C)
+    """
+    conditioner: Union[ResNetConditioner, TransformerConditioner]
+
+    # name of the task
+    name: str = "RQ-NSF(C)"
+    # number of bins for Spline func.
+    num_bins: int = 8
+    # tail_bound
+    tail_bound: float = 1.0
+    # apply_unconditional_transform
+    apply_unconditional_transform: bool = True
+
+
+@dataclass
+class UMNNFlow:
+    """HyperParameters for UMNN
+    An unconstrained monotonic neural networks coupling layer that transforms the variables.
+    """
+    conditioner: Union[ResNetConditioner, TransformerConditioner]
+
+    # name of the task
+    name: str = 'UMNN'
+    # The layers dimension to put in the integrand network.
+    integrand_net_layers: List[int] = field(default_factory=lambda: [50, 50, 50])
+    # The embedding size for the conditioning factors.
+    cond_size: float = 20
+    # The number of integration steps.
+    nb_steps: float = 20
+    # The quadrature algorithm - CC or CCParallel. Both implements Clenshaw-Curtis quadrature with'
+    # Leibniz rule for backward computation. CCParallel pass all the evaluation points (nb_steps) at once, it is faster
+    # but requires more memory.
+    solver: str = 'CCParallel'
 
 
 @dataclass
@@ -64,7 +139,7 @@ class WaveformDatasetParameters:
     # waveform generator ('bilby', 'pycbc')
     base: str = 'bilby'
     # detectors for waveform (A1 H1 L1 V1 K1 CE ET GEO600)
-    detectors: list = field(default_factory=list)
+    detectors: List[str] = field(default_factory=lambda: ['H1', 'L1'])
     # detector responce at target time GPS
     target_time: float = 1126259462.3999023
     # waveform buffer time from target time to the end
@@ -94,11 +169,11 @@ class OptimizationParameters:
     # num of workers for DataLoader
     num_workers: int = 0
     # number of epochs for training
-    total_epochs: int = 10000
+    total_epochs: int = 10_000
     # learning rates for flow model
-    lr_flow: float = 0.0001
+    lr_flow: float = 0.000_1
     # learning rates for embedding model
-    lr_embedding: float = 0.0001
+    lr_embedding: float = 0.000_1
     # annealing learning rate or not
     lr_annealing: bool = True
     # anneal method for lr ('step', 'cosine', 'cosineWR')
@@ -133,8 +208,8 @@ class InferenceEventsParameters:
 @dataclass
 class Train(Serializable):
     """Example of a command to start a Training run."""
-    # Train a new model or a exitsing model
-    # train: Union[New, Existing]
+    # Choose a normalizing flow model
+    flowmodel: Union[RQNSFCFlow, UMNNFlow]
 
     # target events data directory
     events_dir: Path = Path("~/trainNew")
@@ -147,20 +222,20 @@ class Train(Serializable):
     existing: bool = False
 
     waveform: WaveformDatasetParameters = WaveformDatasetParameters(
-        detectors=['H1', 'L1'],
     )
 
     optim: OptimizationParameters = OptimizationParameters(
-
     )
 
     inference: InferenceEventsParameters = InferenceEventsParameters(
-
     )
 
     transformer: VanillaTransformerParameters = VanillaTransformerParameters(
         "vanilla"
     )
+
+    # num of flow steps
+    num_flow_steps: int = 2
 
     def saveyaml(self):
         if self.existing:
@@ -192,7 +267,7 @@ class Test:
 @dataclass
 class Program(Serializable):
     """Some top-level command"""
-    comd: Union[Train, Test]
+    run: Union[Train, Test]
     # us cuda or not
     cuda: bool = True
     # log additional messages in the console.
@@ -200,8 +275,8 @@ class Program(Serializable):
 
     def execute(self):
         print(f"Executing Program (verbose: {self.verbose})")
-        # self.comd.execute()
-        self.comd = self.comd.saveyaml()
+        # self.run.execute()
+        self.run = self.run.saveyaml()
 
 
 @encode.register
