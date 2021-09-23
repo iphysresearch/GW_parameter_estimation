@@ -18,6 +18,7 @@ except ModuleNotFoundError as e:
     from conformer.encoder import ConformerEncoder
 
 import flows
+import nflow
 from transformer import TransformerEncoder
 from utils import (MultipleOptimizer,
                    MultipleScheduler,
@@ -37,7 +38,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from nflows.utils import get_num_parameters
-
 # from collections import namedtuple
 import torch
 from torch import nn
@@ -264,39 +264,54 @@ class PosteriorModel(object):
         else:
             raise
 
-    def init_nflow_network(self, num_flow_steps):
-        flow_creator = flows.create_NDE_model
-        self.flow_net = flow_creator(input_dim=len(self.target_labels),
-                                     num_flow_steps=num_flow_steps,
-                                     base_transform_kwargs=self.base_transform_kwargs)
-        self.flow_net.to(self.device)
+    def init_nflow_network(self, flowmodel, num_flow_steps):
+        print_dict({key: flowmodel.__dict__[key]
+                    for key in flowmodel.__dict__.keys()
+                    if key != 'conditioner'}, ncol=1, prex='\t\t')
+        print_dict(flowmodel.conditioner.__dict__, ncol=2, prex='\t\t')
 
-    def init_training(self, kwargs):
-        if self.embedding_net is not None:
+        flow_creator = nflow.create_model
+        self.flow_net = flow_creator(wfdt=self.wfdt_train,
+                                     input_dim=len(self.target_labels),
+                                     num_flow_steps=num_flow_steps,
+                                     flowmodel=flowmodel,
+                                     input_shape=self.input_shape,
+                                     embedding_net=self.embedding_net,
+                                     )
+        self.flow_net.to(self.device)
+        print(f"Num of params:\
+              \n=> {get_num_parameters(self.embedding_net):>15,d} | embedding\
+              \n=> {get_num_parameters(self.flow_net):>15,d} | nflow")
+
+    def init_training(self, optim):
+        if optim.lr_embedding:
             print('Init MultipleOptimizer for flow_net and embedding_net.')
-            op1 = torch.optim.Adam(self.flow_net.parameters(), lr=kwargs['lr_flow'])
-            op2 = torch.optim.Adam(self.embedding_net.parameters(), lr=kwargs['lr_embedding'])
+            op1 = torch.optim.Adam(self.flow_net.parameters(), lr=optim.lr_flow)
+            op2 = torch.optim.Adam(self.embedding_net.parameters(), lr=optim.lr_embedding)
             self.optimizer = MultipleOptimizer(op1, op2)
         else:
-            self.optimizer = torch.optim.Adam(self.flow_net.parameters(), lr=kwargs['lr_flow'])
+            print('Init optimizer for flow_net only.')
+            self.optimizer = torch.optim.Adam(self.flow_net.parameters(), lr=optim.lr_flow)
+            self.embedding_net = None # TODO
 
-        if kwargs['lr_annealing'] is True:  # TODO
-            if kwargs['lr_anneal_method'] == 'step':
+        if optim.lr_annealing is True:  # TODO
+            if optim.lr_anneal_method == 'step':
                 self.scheduler = torch.optim.lr_scheduler.StepLR(
                     self.optimizer,
-                    step_size=kwargs['steplr_step_size'],
-                    gamma=kwargs['steplr_gamma'])
-            elif self.embedding_net is not None:
+                    step_size=optim.steplr_step_size,
+                    gamma=optim.steplr_gamma)
+            elif self.embedding_net is not None and optim.lr_embedding:
                 print('Init MultipleScheduler (cosine) for flow_net and embedding_net.')
-                lr_sch1 = torch.optim.lr_scheduler.CosineAnnealingLR(op1, T_max=kwargs['total_epochs'])
-                lr_sch2 = torch.optim.lr_scheduler.CosineAnnealingLR(op2, T_max=kwargs['total_epochs'])
+                lr_sch1 = torch.optim.lr_scheduler.CosineAnnealingLR(op1, T_max=optim.total_epochs)
+                lr_sch2 = torch.optim.lr_scheduler.CosineAnnealingLR(op2, T_max=optim.total_epochs)
                 self.scheduler = MultipleScheduler(lr_sch1, lr_sch2)
-            elif kwargs['lr_anneal_method'] == 'cosine':
+            elif optim.lr_anneal_method == 'cosine':
+                print('Init scheduler (cosine) for flow_net only.')
                 self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                     self.optimizer,
-                    T_max=kwargs['total_epochs'],
+                    T_max=optim.total_epochs,
                 )
-            elif kwargs['lr_anneal_method'] == 'cosineWR':
+            elif optim.lr_anneal_method == 'cosineWR':
                 self.scheduler = (
                     torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
                         self.optimizer,
@@ -401,12 +416,12 @@ class PosteriorModel(object):
 
             return test_loss
 
-    def train(self, total_epochs, output_freq, kwargs):
+    def train(self, total_epochs, output_freq, inference):
         print('Starting timer')
         start_time = time.time()
         for epoch in range(self.epoch_cache, self.epoch_cache + total_epochs):
 
-            if self.embedding_net is not None:
+            try:
                 print(
                     'Learning rate:\n\tflow_net:\t',
                     '\n\tembedding_net:\t '.join(
@@ -414,8 +429,7 @@ class PosteriorModel(object):
                         for Dict in self.optimizer.state_dict()
                     ),
                 )
-
-            else:
+            except TypeError:
                 print('Learning rate: {}'.format(
                     self.optimizer.state_dict()['param_groups'][0]['lr']))
 
@@ -433,7 +447,7 @@ class PosteriorModel(object):
 
             self.epoch_cache = epoch + 1
             # Log/Plot/Save the history to file
-            self._logging_to_file(epoch, kwargs)
+            self._logging_to_file(epoch, inference)
             if ((output_freq is not None) and (epoch == self.epoch_minimum_test_loss)):
                 self._save_model_samples(epoch)
         print('Stopping timer.')
@@ -448,7 +462,7 @@ class PosteriorModel(object):
         plt.savefig(p / filename)
         plt.close()
 
-    def _logging_to_file(self, epoch, kwargs):
+    def _logging_to_file(self, epoch, inference):
         # Log the history to file
 
         # Make column headers if this is the first epoch
@@ -470,8 +484,8 @@ class PosteriorModel(object):
             self.epoch_minimum_test_loss = int(data_history[
                 np.argmin(data_history[:, 2]), 0])
 
-        self._save_kljs_history(epoch, **kwargs)
-        self._plot_kljs_history(epoch, kwargs['event'])
+        self._save_kljs_history(epoch, **inference)
+        self._plot_kljs_history(epoch, inference.event)
 
     def _save_model_samples(self, epoch):
         for f in ffname(self.model_dir, f'e*_{self.save_model_name}'):
@@ -523,7 +537,7 @@ class PosteriorModel(object):
             try:
                 strain = TimeSeries.read(p / ffname(p, pat)[0], format='hdf5')
             except IndexError:
-                print(f'No pattern '+pat+f' found in {p}!')
+                print('No pattern ' + pat + f' found in {p}!')
                 raise
             strain_target_segment = (start_time <= strain.times.value) & (strain.times.value <= start_time+duration)
 
@@ -628,28 +642,31 @@ class PosteriorModel(object):
 
         checkpoint = torch.load(self.model_dir / ffname(self.model_dir, f'e*_{self.save_model_name}')[0],
                                 map_location=self.device)
-
         flow_net_hyperparams = checkpoint['flow_net_hyperparams']
         assert flow_net_hyperparams['input_dim'] == len(self.target_labels)
         self.base_transform_kwargs = flow_net_hyperparams['base_transform_kwargs']
 
-        print('Load Embedding Network...')
-        # Load embedding_net
-        self.embedding_transformer_kwargs = checkpoint['embedding_transformer_kwargs']
-        embedding_net = nn.Sequential(
-            self.init_vanilla_transformer(self.embedding_transformer_kwargs),
-        )
-        self.init_embedding_network(embedding_net)
-        self.embedding_net.load_state_dict(checkpoint['embedding_net_state_dict'])
+        if self.embedding_net is not None:
+            print('Load Embedding Network...')
+            # Load embedding_net
+            self.embedding_transformer_kwargs = checkpoint['embedding_transformer_kwargs']
+            embedding_net = nn.Sequential(
+                self.init_vanilla_transformer(self.embedding_transformer_kwargs),
+            )
+            self.init_embedding_network(embedding_net)
+            self.embedding_net.load_state_dict(checkpoint['embedding_net_state_dict'])
 
         # Load flow_net
         print('Load Normalizing Flow Network...')
         print('\tNumber of transforms in flow sequence:', flow_net_hyperparams['num_flow_steps'])
-        flow_creator = flows.create_NDE_model
-        self.flow_net = flow_creator(input_dim=flow_net_hyperparams['input_dim'],
+        flow_creator = nflow.create_model
+        self.flow_net = flow_creator(wfdt=self.wfdt_train,
+                                     input_dim=flow_net_hyperparams['input_dim'],
                                      num_flow_steps=flow_net_hyperparams['num_flow_steps'],
-                                     base_transform_kwargs=self.base_transform_kwargs)
-        print_dict(self.base_transform_kwargs, 3, '\t')
+                                     flowmodel=flow_net_hyperparams['flowmodel'],
+                                     input_shape=self.input_shape,
+                                     embedding_net=self.embedding_net,
+                                     )
         self.flow_net.to(self.device)
         self.flow_net.load_state_dict(checkpoint['flow_net_state_dict'])
 
