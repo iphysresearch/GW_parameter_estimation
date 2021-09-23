@@ -87,8 +87,8 @@ def main():
             # Init embedding network ############################################################################
             print('Init Embedding Network...')
             embedding_transformer_kwargs = dict(
-                isrel_pos_encoding=True,
-                ispso_encoding=False,
+                isrel_pos_encoding=args.run.transformer.isrel_pos_encoding,
+                ispso_encoding=args.run.transformer.ispso_encoding,
                 vocab_size=0,  # 0 for embeding only
                 ffn_num_hiddens=args.run.transformer.ffn_num_hiddens,
                 num_heads=args.run.transformer.num_heads,
@@ -121,17 +121,18 @@ def main():
                     func=pm.init_conformer,
                     kwargs=dict(),
                 ),
-                "cvt4to4": dict(
+                "cvt4to3": dict(
                     func=pm.init_cvt,
                     kwargs=dict(),
                 ),
             }
             embedding_net = nn.Sequential()
+            # embedding_modules = ["transformer3to3"]
             embedding_modules = ["3to4", "vgg4to4", "4to3", "transformer3to3"]
             # embedding_modules = ["3ex4", "vgg4to4", "4to3", "transformer3to3", "conformer3to3"]
             # embedding_modules = ["conformer3to3"]
-            # embedding_modules = ["3ex4", "cvt4to4"]
-            # embedding_modules = ["3to4", "cvt4to4"]
+            # embedding_modules = ["3ex4", "cvt4to3"]
+            # embedding_modules = ["3to4", "cvt4to3"]
             for name in embedding_modules:
                 embedding_net.add_module(name, module_dict[name]['func'](**module_dict[name]['kwargs']))
             pm.init_embedding_network(embedding_net)  # pn.embedding_net.to(pm.device)
@@ -139,12 +140,30 @@ def main():
             # ###################################################################################################
             # Init nflow network ################################################################################
             print('Init Normalizing Flow Network...')
-            print(f'\tNumber of transforms in flow sequence: {args.run.num_flow_steps}')
-            input(333)
-            pm.get_base_transform_kwargs(args)
-            pm.init_nflow_network(args.run.num_flow_steps)
+            num_flow_steps = args.run.num_flow_steps
+            print(f'\tNumber of transforms in flow sequence: {num_flow_steps}')
+            print(f'\tSet up {args.run.flowmodel.name} model with conditioner {args.run.flowmodel.conditioner.name}.')
+            pm.init_nflow_network(args.run.flowmodel, num_flow_steps)
         elif args.run.existing:
-            pm.load_model()
+            pm.load_model()  # TODO
+        # #######################################################################################################
+        # #######################################################################################################
+        # Init training #########################################################################################
+        pm.init_training(args.run.optim)
+        print('\tArgumentations for training:')
+        print_dict(vars(args.run.optim), 3, '\t\t')
+
+        # Training ###################################################################
+        print('\tInference events during training:')
+        print_dict(vars(args.run.inference), 3, '\t\t')
+
+        try:
+            pm.train(args.run.optim.total_epochs, args.run.optim.output_freq, args.run.inference)
+        except KeyboardInterrupt as e:
+            print(e)
+        finally:
+            print('Finished!')
+
 
     # elif args.run.name == 'test':
     #     pass
