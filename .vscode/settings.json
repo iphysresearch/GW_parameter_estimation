@@ -1,4 +1,7 @@
 {
     "python.linting.flake8Enabled": true,
-    "python.linting.flake8Args": ["--max-line-length=120"]
+    "python.linting.flake8Args": [
+        "--max-line-length=120"
+    ],
+    "restructuredtext.syntaxHighlighting.disabled": true
 }
