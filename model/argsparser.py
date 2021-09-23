@@ -15,8 +15,8 @@ class ResNetConditioner:
     name: str = "ResNetConditioner"
     # number of hidden neurals
     hidden_dims: int = 512
-    # activation function
-    activation: Literal['relu', 'leaky_relu', 'elu'] = 'relu'
+    # activation function (Literal['relu', 'leaky_relu', 'elu'])
+    activation: str = 'relu'
     # dropout
     dropout: float = 0.0
     # num_blocks
@@ -89,9 +89,9 @@ class VanillaTransformerParameters:
     # name of the task
     name: str
     # Use Relative Global Attention or not
-    isrel_pos_encoding: bool = False
+    isrel_pos_encoding: bool = True
     # Use Positional Encoding or not
-    ispso_encoding: bool = True
+    ispso_encoding: bool = False
     # size of the dictionary of embeddings, 0 for no embeddings
     vocab_size: int = 0
     # number of hidden neurals in FFN
