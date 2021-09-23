@@ -15,7 +15,7 @@ except ModuleNotFoundError as e:
     sys.path.insert(0, 'model/conformer/')
     from gwtoolkit.gw import WaveformDataset
     from gwtoolkit.torch import (WaveformDatasetTorch, Normalize_params, Patching_data, ToTensor)
-    from conformer.encoder import ConformerEncoder
+    #from conformer.encoder import ConformerEncoder
 
 import flows
 import nflow
@@ -484,7 +484,7 @@ class PosteriorModel(object):
             self.epoch_minimum_test_loss = int(data_history[
                 np.argmin(data_history[:, 2]), 0])
 
-        self._save_kljs_history(epoch, **inference)
+        self._save_kljs_history(epoch, **inference.__dict__)
         self._plot_kljs_history(epoch, inference.event)
 
     def _save_model_samples(self, epoch):
@@ -496,12 +496,12 @@ class PosteriorModel(object):
 
     def _save_kljs_history(self, epoch, event, nsamples_target_event,
                            flow, fhigh, sample_rate, batch_size,
-                           start_time, duration, bilby_event_dir):
+                           start_time, duration, bilby_dir):
 
         self.test_samples = self._get_test_samples(event, nsamples_target_event,
                                                    flow, fhigh, sample_rate, batch_size,
                                                    start_time, duration)
-        bilby_samples = self._load_a_bilby_samples(event, nsamples_target_event, bilby_event_dir)
+        bilby_samples = self._load_a_bilby_samples(event, nsamples_target_event, bilby_dir)
 
         if epoch == 1:
             writer_row(self.model_dir, 'js_history.txt', 'w', self.target_labels)
