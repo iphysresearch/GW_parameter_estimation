@@ -45,6 +45,15 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 
+class GlobalAveragePooling(nn.Module):
+    def __init__(self, input_shape):
+        super().__init__()
+        self.GAP = nn.AvgPool2d((input_shape[-2], 1))
+
+    def forward(self, x):
+        return self.GAP(x).squeeze(1)
+
+
 class PosteriorModel(object):
     def __init__(self,
                  model_dir,
@@ -204,6 +213,30 @@ class PosteriorModel(object):
         print('\tInit a vanilla Transformer:')
         print_dict(kwargs, 3, '\t\t')
         return TransformerEncoder(**kwargs)
+
+    def init_global_average_pooling(self):
+        print('\tbefore Global Average Pooling:', self.input_shape)
+        gap = GlobalAveragePooling(self.input_shape)
+        self.input_shape = infer_output_dim(gap, self.input_shape)
+        print('\tafter Global Average Pooling:', self.input_shape)
+        return gap
+
+    def init_classifier(self):
+        print('\tbefore Classifier:', self.input_shape)
+        classifier = nn.Sequential(
+            nn.Linear(
+                in_features=self.input_shape[0],
+                out_features=64,  # self.representation_size,
+                ),
+            nn.Tanh(),
+            nn.Linear(
+                in_features=64,
+                out_features=2,  # self.num_classes,
+                )
+        )
+        self.input_shape = infer_output_dim(classifier, self.input_shape)
+        print('\tafter Classifier:', self.input_shape)
+        return classifier
 
     def get_base_transform_kwargs(self, args):
         self.model_type = args.model_type
