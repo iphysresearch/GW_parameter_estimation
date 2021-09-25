@@ -75,6 +75,10 @@ class PosteriorModel(object):
         self.test_samples = None
         self.embedding_transformer_kwargs = None
 
+        self.flow_net = None
+        self.embedding_net = None
+        self.loss = None
+
         self.wfd = None
         self.target_labels = None
         self.wfdt_train = None
@@ -108,7 +112,7 @@ class PosteriorModel(object):
     def init_WaveformDatasetTorch(self, num, start_time, geocent_time, target_optimal_snr_tuple,
                                   target_labels, stimulated_whiten_ornot,
                                   composed_data, composed_params, rand_transform_data,
-                                  batch_size, num_workers):
+                                  batch_size, num_workers, classification_ornot=None):
         self.target_labels = target_labels
 
         # pytorch wrappers
@@ -121,7 +125,8 @@ class PosteriorModel(object):
             stimulated_whiten_ornot=stimulated_whiten_ornot,
             transform_data=composed_data,
             transform_params=composed_params,
-            rand_transform_data=rand_transform_data)
+            rand_transform_data=rand_transform_data,
+            classification_ornot=classification_ornot)
         self.wfdt_test = WaveformDatasetTorch(
             self.wfd, num=num,
             start_time=start_time,
@@ -131,7 +136,8 @@ class PosteriorModel(object):
             stimulated_whiten_ornot=stimulated_whiten_ornot,
             transform_data=composed_data,
             transform_params=composed_params,
-            rand_transform_data=rand_transform_data)
+            rand_transform_data=rand_transform_data,
+            classification_ornot=classification_ornot)
 
         # DataLoader objects
         self.train_loader = DataLoader(
@@ -317,15 +323,19 @@ class PosteriorModel(object):
               \n=> {get_num_parameters(self.flow_net):>15,d} | nflow")
 
     def init_training(self, optim):
-        if optim.lr_embedding:
+        if optim.lr_embedding and optim.lr_flow:
             print('Init MultipleOptimizer for flow_net and embedding_net.')
             op1 = torch.optim.Adam(self.flow_net.parameters(), lr=optim.lr_flow)
             op2 = torch.optim.Adam(self.embedding_net.parameters(), lr=optim.lr_embedding)
             self.optimizer = MultipleOptimizer(op1, op2)
-        else:
+        elif optim.lr_flow:
             print('Init optimizer for flow_net only.')
             self.optimizer = torch.optim.Adam(self.flow_net.parameters(), lr=optim.lr_flow)
-            self.embedding_net = None # TODO
+            self.embedding_net = None  # TODO
+        elif optim.lr_embedding:
+            print('Init optimizer for embedding_net only.')
+            self.optimizer = torch.optim.Adam(self.embedding_net.parameters(), lr=optim.lr_embedding)
+            self.loss = nn.CrossEntropyLoss()
 
         if optim.lr_annealing is True:  # TODO
             if optim.lr_anneal_method == 'step':
@@ -333,13 +343,13 @@ class PosteriorModel(object):
                     self.optimizer,
                     step_size=optim.steplr_step_size,
                     gamma=optim.steplr_gamma)
-            elif self.embedding_net is not None and optim.lr_embedding:
+            elif optim.lr_embedding and optim.lr_flow:
                 print('Init MultipleScheduler (cosine) for flow_net and embedding_net.')
                 lr_sch1 = torch.optim.lr_scheduler.CosineAnnealingLR(op1, T_max=optim.total_epochs)
                 lr_sch2 = torch.optim.lr_scheduler.CosineAnnealingLR(op2, T_max=optim.total_epochs)
                 self.scheduler = MultipleScheduler(lr_sch1, lr_sch2)
             elif optim.lr_anneal_method == 'cosine':
-                print('Init scheduler (cosine) for flow_net only.')
+                print('Init scheduler (cosine) for flow_net/embedding_net only.')
                 self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                     self.optimizer,
                     T_max=optim.total_epochs,
@@ -371,7 +381,6 @@ class PosteriorModel(object):
             float -- average train loss over epoch
         """
         train_loss = 0.0
-        self.flow_net.train()
 
         start_time = time.time()
         for batch_idx, (h, x) in enumerate(self.train_loader):
@@ -380,14 +389,19 @@ class PosteriorModel(object):
 
             if self.device is not None:
                 h = h.to(torch.float32).to(self.device, non_blocking=True)
-                x = x.to(torch.float32).to(self.device, non_blocking=True)
+                x = x.to(torch.long if self.loss is not None else torch.float32).to(self.device, non_blocking=True)
 
             # Compute log prob
-            if self.embedding_net is not None:
+            if (self.embedding_net is not None) and (self.flow_net is not None):
                 self.embedding_net.train()
+                self.flow_net.train()
                 loss = - self.flow_net.log_prob(x, context=self.embedding_net(h))
-            else:
+            elif self.flow_net is not None:
+                self.flow_net.train()
                 loss = - self.flow_net.log_prob(x, context=h)
+            elif self.embedding_net is not None:
+                self.embedding_net.train()
+                loss = self.loss(self.embedding_net(h), x)
 
             # Keep track of total loss.
             train_loss += loss.sum()
@@ -432,14 +446,20 @@ class PosteriorModel(object):
 
                 if self.device is not None:
                     h = h.to(torch.float32).to(self.device, non_blocking=True)
-                    x = x.to(torch.float32).to(self.device, non_blocking=True)
+                    x = x.to(torch.long if self.loss is not None else torch.float32).to(self.device, non_blocking=True)
+
 
                 # Compute log prob
-                if self.embedding_net is not None:
+                if (self.embedding_net is not None) and (self.flow_net is not None):
                     self.embedding_net.eval()
+                    self.flow_net.eval()
                     loss = - self.flow_net.log_prob(x, context=self.embedding_net(h))
-                else:
+                elif self.flow_net is not None:
+                    self.flow_net.eval()
                     loss = - self.flow_net.log_prob(x, context=h)
+                elif self.embedding_net is not None:
+                    self.embedding_net.eval()
+                    loss = self.loss(h, x)
 
                 # Keep track of total loss
                 test_loss += loss.sum()
@@ -479,10 +499,14 @@ class PosteriorModel(object):
             self.test_history.append(test_loss)
 
             self.epoch_cache = epoch + 1
-            # Log/Plot/Save the history to file
-            self._logging_to_file(epoch, inference)
-            if ((output_freq is not None) and (epoch == self.epoch_minimum_test_loss)):
-                self._save_model_samples(epoch)
+            if self.flow_net is not None:
+                # Log/Plot/Save the history to file
+                self._logging_to_file(epoch, inference)
+                if ((output_freq is not None) and (epoch == self.epoch_minimum_test_loss)):
+                    self._save_model(epoch)
+                    self._save_test_samples()
+            elif ((output_freq is not None) and (epoch == self.epoch_minimum_test_loss)):
+                self._save_model(epoch)
         print('Stopping timer.')
         stop_time = time.time()
         print(f'Training time (including validation): {stop_time - start_time} seconds')
@@ -520,12 +544,11 @@ class PosteriorModel(object):
         self._save_kljs_history(epoch, **inference.__dict__)
         self._plot_kljs_history(epoch, inference.event)
 
-    def _save_model_samples(self, epoch):
+    def _save_model(self, epoch):
         for f in ffname(self.model_dir, f'e*_{self.save_model_name}'):
             os.remove(self.model_dir / f)
         print(f'Saving model as e{epoch}_{self.save_model_name}\n')
         self.save_model(filename=f'e{epoch}_{self.save_model_name}')
-        self._save_test_samples()
 
     def _save_kljs_history(self, epoch, event, nsamples_target_event,
                            flow, fhigh, sample_rate, batch_size,
