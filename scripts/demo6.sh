@@ -28,8 +28,8 @@ python ../model/main.py train new \
     --train.batch_size 16 \
     --train.num_workers 0 \
     --train.total_epochs 50000 \
-    --train.lr_flow 0.0001 \
-    --train.lr_embedding 0.0001 \
+    --train.lr_flow 0.00001 \
+    --train.lr_embedding 0.00001 \
     --train.lr_anneal_method cosine \
     --train.output_freq 5 \
     --train.no_lr_annealing \
@@ -47,14 +47,14 @@ python ../model/main.py train new \
     --rq_coupling_model.num_bins 8 \
     transformer \
     --transformer_cond.hidden_features 16 \
-    --transformer_cond.num_blocks 2 \
-    --transformer_cond.ffn_num_hiddens 16 \
+    --transformer_cond.num_blocks 1 \
+    --transformer_cond.ffn_num_hiddens 8 \
     --transformer_cond.num_heads 2 \
-    --transformer_cond.num_layers 2 \
+    --transformer_cond.num_layers 1 \
     --transformer_cond.dropout 0.1 \
-    --transformer_embedding.ffn_num_hiddens 128 \
+    --transformer_embedding.ffn_num_hiddens 8 \
     --transformer_embedding.num_heads 1 \
-    --transformer_embedding.num_layers 3 \
+    --transformer_embedding.num_layers 2 \
     --transformer_embedding.dropout 0.1
 
 # python ../model/main.py train existing \

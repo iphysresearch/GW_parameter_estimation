@@ -439,7 +439,6 @@ class PosteriorModel(object):
             float -- test loss
         """
         with torch.no_grad():
-            self.flow_net.eval()
 
             test_loss = 0.0
             for h, x in self.test_loader:
@@ -459,7 +458,7 @@ class PosteriorModel(object):
                     loss = - self.flow_net.log_prob(x, context=h)
                 elif self.embedding_net is not None:
                     self.embedding_net.eval()
-                    loss = self.loss(h, x)
+                    loss = self.loss(self.embedding_net(h), x)
 
                 # Keep track of total loss
                 test_loss += loss.sum()
@@ -499,9 +498,12 @@ class PosteriorModel(object):
             self.test_history.append(test_loss)
 
             self.epoch_cache = epoch + 1
+            print(self.epoch_minimum_test_loss)
+            self._logging_to_file(epoch)
             if self.flow_net is not None:
                 # Log/Plot/Save the history to file
-                self._logging_to_file(epoch, inference)
+                self._plot_kljs_history(epoch, inference.event)
+                self._save_kljs_history(epoch, **inference.__dict__)
                 if ((output_freq is not None) and (epoch == self.epoch_minimum_test_loss)):
                     self._save_model(epoch)
                     self._save_test_samples()
@@ -519,7 +521,7 @@ class PosteriorModel(object):
         plt.savefig(p / filename)
         plt.close()
 
-    def _logging_to_file(self, epoch, inference):
+    def _logging_to_file(self, epoch):
         # Log the history to file
 
         # Make column headers if this is the first epoch
@@ -541,8 +543,6 @@ class PosteriorModel(object):
             self.epoch_minimum_test_loss = int(data_history[
                 np.argmin(data_history[:, 2]), 0])
 
-        self._save_kljs_history(epoch, **inference.__dict__)
-        self._plot_kljs_history(epoch, inference.event)
 
     def _save_model(self, epoch):
         for f in ffname(self.model_dir, f'e*_{self.save_model_name}'):
@@ -675,12 +675,13 @@ class PosteriorModel(object):
 
     def save_model(self, filename='model.pt'):
         cache_dict = {  # TODO
-            'flow_net_hyperparams': self.flow_net.model_hyperparams,
-            'flow_net_state_dict': self.flow_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epoch_cache': self.epoch_cache,
             'epoch_minimum_test_loss': self.epoch_minimum_test_loss,
         }
+        if self.flow_net is not None:
+            cache_dict['flow_net_hyperparams'] = self.flow_net.model_hyperparams
+            cache_dict['flow_net_state_dict'] = self.flow_net.state_dict()
         if self.embedding_net is not None:
             cache_dict['embedding_net_state_dict'] = self.embedding_net.state_dict()
             cache_dict['embedding_transformer_kwargs'] = self.embedding_transformer_kwargs
