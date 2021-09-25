@@ -135,7 +135,7 @@ def main():
             # embedding_modules = ["3to4", "cvt4to3"]
             for name in embedding_modules:
                 embedding_net.add_module(name, module_dict[name]['func'](**module_dict[name]['kwargs']))
-            pm.init_embedding_network(embedding_net)  # pn.embedding_net.to(pm.device)
+            pm.init_embedding_network(embedding_net, args.run.optim)  # pn.embedding_net.to(pm.device)
             # ###################################################################################################
             # ###################################################################################################
             # Init nflow network ################################################################################

@@ -186,6 +186,8 @@ class OptimizationParameters:
     output_freq: int = 50
     # save the model or not
     save: bool = True
+    # pretrain_embedding_dir
+    pretrain_embedding_dir: Path = Path("./output/model/")
 
 
 @dataclass
@@ -219,6 +221,7 @@ class Train(Serializable):
     save_model_name: str = "model.pt"
     # prior file directory
     prior_dir: Path = Path("./demo.prior")
+    # is existing ?
     existing: bool = False
 
     waveform: WaveformDatasetParameters = WaveformDatasetParameters(

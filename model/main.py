@@ -152,9 +152,21 @@ class PosteriorModel(object):
                 int(torch.initial_seed()) % (2**32-1)))
         self.input_shape = self.wfdt_train.data_block.shape[1:]
 
-    def init_embedding_network(self, embedding_net):
+    def init_embedding_network(self, embedding_net, optim):
         self.embedding_net = embedding_net
         self.embedding_net.to(self.device)
+
+        if optim.pretrain_embedding_dir is not None:
+            optim.pretrain_embedding_dir
+            checkpoint = torch.load(optim.pretrain_embedding_dir / ffname(optim.pretrain_embedding_dir, f'e*_{self.save_model_name}')[0],
+                                    map_location=self.device)
+            dd = checkpoint['embedding_net_state_dict']
+            for key in list(dd.keys()):
+                if 'classifier' in key:
+                    del dd[key]
+            print('Load pretrained Embedding Network...')
+            # Load embedding_net
+            self.embedding_net.load_state_dict(checkpoint['embedding_net_state_dict'])
 
     def init_rearrange(self, pattern, **kwargs):
         arange = Rearrange(pattern, **kwargs)

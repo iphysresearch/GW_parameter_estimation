@@ -1,7 +1,7 @@
 export CUDA_VISIBLE_DEVICES=1
 
 python model/run.py train \
---model_dir ./output/models/demo_model_31 \
+--model_dir ./output/models/demo_model_pretrain \
 --events_dir ./data/events_hdf5 \
 --prior_dir scripts/demo.prior \
 --bilby_dir ./downsampled_posterior_samples_v1.0.0 \
@@ -10,8 +10,10 @@ python model/run.py train \
 --lr_flow 0.00001 \
 --lr_embedding 0.0 \
 --target_optimal_snr 0 0 \
---optim.batch_size 4 \
---epoch_size 128 \
+--optim.batch_size 32 \
+--epoch_size 512 \
+--output_freq 5 \
+--pretrain_embedding_dir ./output/models/demo_model_classification
 rqnsfcflow  transformerconditioner \
 --ffn_num_hiddens 128 \
 --num_blocks 2 \
