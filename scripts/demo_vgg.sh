@@ -7,13 +7,13 @@ python model/run.py train \
 --bilby_dir ./downsampled_posterior_samples_v1.0.0 \
 --num_flow_steps 15 \
 --ffn_num_hiddens 128 \
---lr_flow 0.00001 \
+--lr_flow 0.000001 \
 --lr_embedding 0.0 \
 --target_optimal_snr 0 0 \
---optim.batch_size 32 \
+--optim.batch_size 8 \
 --epoch_size 512 \
 --output_freq 5 \
---pretrain_embedding_dir ./output/models/demo_model_classification
+--pretrain_embedding_dir ./output/models/demo_model_classification \
 rqnsfcflow  transformerconditioner \
 --ffn_num_hiddens 128 \
 --num_blocks 2 \
