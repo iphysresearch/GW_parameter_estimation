@@ -1,6 +1,3 @@
 [submodule "GWToolkit"]
 	path = GWToolkit
 	url = https://github.com/iphysresearch/GWToolkit.git
-[submodule "model/conformer"]
-	path = model/conformer
-	url = https://github.com/sooftware/conformer.git
