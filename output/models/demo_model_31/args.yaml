@@ -1,0 +1,78 @@
+events_dir: data/events_hdf5
+existing: false
+flowmodel:
+  apply_unconditional_transform: true
+  conditioner:
+    dropout: 0.1
+    ffn_num_hiddens: 128
+    hidden_features: 128
+    name: TransformerConditioner
+    num_blocks: 2
+    num_heads: 2
+    num_layers: 4
+  name: RQ-NSF(C)
+  num_bins: 8
+  tail_bound: 1.0
+inference:
+  batch_size: 4
+  bilby_dir: downsampled_posterior_samples_v1.0.0
+  duration: 8
+  event: GW150914
+  fhigh: 250
+  flow: 50
+  nsamples_target_event: 200
+  sample_rate: 4096
+  start_time: 1126259456.3999023
+model_dir: output/models/demo_model_31
+num_flow_steps: 15
+optim:
+  batch_size: 4
+  epoch_size: 128
+  lr_anneal_method: cosine
+  lr_annealing: true
+  lr_embedding: 0.0
+  lr_flow: 1.0e-05
+  num_workers: 0
+  output_freq: 50
+  save: true
+  steplr_gamma: 0.5
+  steplr_step_size: 80
+  total_epochs: 10000
+prior_dir: scripts/demo.prior
+save_model_name: model.pt
+transformer:
+  dropout: 0.1
+  ffn_num_hiddens: 128
+  ffn_num_input: null
+  ispso_encoding: false
+  isrel_pos_encoding: true
+  key_size: null
+  name: vanilla
+  norm_shape: null
+  num_heads: 2
+  num_hiddens: null
+  num_layers: 6
+  query_size: null
+  valid_lens: null
+  value_size: null
+  vocab_size: 0
+waveform:
+  base: bilby
+  buffer_time: 2
+  conversion: BBH
+  detectors:
+  - H1
+  - L1
+  duration: 8
+  minimum_frequency: 20
+  norm_params_kind: minmax
+  overlap: 0.5
+  patch_size: 0.5
+  reference_frequency: 50
+  sampling_frequency: 4096
+  stimulated_whiten: true
+  target_optimal_snr:
+  - '0'
+  - '0'
+  target_time: 1126259462.3999023
+  waveform_approximant: IMRPhenomPv2
