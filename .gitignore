@@ -6,6 +6,7 @@ models/*/*.hdf5
 models/*/.*
 # GWToolkit/
 output/models/test*
+waveforms/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
