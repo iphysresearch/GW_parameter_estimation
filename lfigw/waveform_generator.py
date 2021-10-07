@@ -1,3 +1,4 @@
+from .utils import Generate_PSD
 from .reduced_basis import SVDBasis
 import h5py
 import numpy as np
@@ -212,6 +213,7 @@ class WaveformDataset(object):
                         L1={},
                         V1={},
                         ref={})
+        self.ref_psd = None
 
         # Note that much of the code depends on detectory ordering in the
         # dictionary. Do not change the ordering. As of Python 3.7 dictionaries
@@ -246,6 +248,8 @@ class WaveformDataset(object):
         self.window_factor = 1.0
         self.event = None
         self.event_dir = None
+        self.randpsd = None
+        self.gpsd = None
 
     @property
     def f_max(self):
@@ -384,6 +388,7 @@ class WaveformDataset(object):
             print('Splitting parameters into training and test sets.')
             self.init_training()
 
+            print('Seting up relative whitening.')
             # Set up relative whitening
             self.init_relative_whitening()
 
@@ -556,6 +561,9 @@ class WaveformDataset(object):
         if self.event is None:
             psd = pycbc.psd.from_string(self.psd_names[ifo], psd_length,
                                         delta_f, self.f_min_psd)
+        elif self.randpsd:
+            psd = self.gpsd.pycbc_psd_from_random(ifo, psd_length, delta_f, self.f_min_psd)
+            print(f'rand psd! {ifo}')
         else:
             psd = pycbc.psd.from_txt(self.event_dir
                                      / (self.psd_names[ifo] + '.txt'),
@@ -585,8 +593,7 @@ class WaveformDataset(object):
         """
 
         key = int(1.0/delta_f)
-
-        if key not in self.psd[ifo]:
+        if not self.randpsd and key not in self.psd[ifo] or self.randpsd:
             self.psd[ifo][key] = self._generate_psd(delta_f, ifo)
 
         return self.psd[ifo][key]
@@ -749,8 +756,10 @@ class WaveformDataset(object):
         if intrinsic_only:
             # Whiten with reference noise PSD and return hp, hc
 
-            hp = hp / (self._get_psd(hp.delta_f, 'ref') ** 0.5)
-            hc = hc / (self._get_psd(hc.delta_f, 'ref') ** 0.5)
+            # hp = hp / (self._get_psd(hp.delta_f, 'ref') ** 0.5)
+            # hc = hc / (self._get_psd(hc.delta_f, 'ref') ** 0.5)
+            hp = hp / (self.ref_psd ** 0.5)
+            hc = hc / (self.ref_psd ** 0.5)
 
             # Convert to TD if necessary, ensure correct length
             if self.domain == 'TD':
@@ -915,6 +924,21 @@ class WaveformDataset(object):
 
         return p_new, h_d_dict
 
+    def init_reduced_basis_whitening(self):
+        """Initialize the reduced basis to be able to perform time translation
+        and relative whitening transformations.
+        """
+
+        # Relative whitening
+
+        ref_psd_name = self.psd_names['ref']
+        self.ref_psd = np.array(self._get_psd(self.delta_f, 'ref'))
+
+        for ifo, psd_name in self.psd_names.items():
+            psd = np.array(self._get_psd(self.delta_f, ifo))
+
+            self.basis.init_whitening(ref_psd_name, self.ref_psd, psd_name, psd)
+
     def init_relative_whitening(self):
         """Initialize relative whitening.
 
@@ -924,7 +948,7 @@ class WaveformDataset(object):
         """
 
         ref_psd_name = self.psd_names['ref']
-        ref_psd = np.array(self._get_psd(self.delta_f, 'ref'))
+        self.ref_psd = np.array(self._get_psd(self.delta_f, 'ref'))
 
         self.relative_whitening_dict = {}
         for ifo in self.detectors.keys():
@@ -934,7 +958,7 @@ class WaveformDataset(object):
                 psd = np.array(self._get_psd(self.delta_f, ifo))
 
                 # Multiply FD waveform by this factor to whiten
-                whitening_factor = (ref_psd / psd) ** 0.5
+                whitening_factor = (self.ref_psd / psd) ** 0.5
                 whitening_factor = whitening_factor.astype(np.float32)
 
                 self.relative_whitening_dict[psd_name] = whitening_factor
@@ -994,6 +1018,12 @@ class WaveformDataset(object):
 
         # Generate random extrinsic parameters.
         p_extrinsic = self.sample_prior_extrinsic(1)[0]
+
+        # Generate ref PSDs and relatives for whitening (H.W.)
+        if self.domain == 'FD':
+            self.init_relative_whitening()
+        elif self.domain == 'RB':
+            self.init_reduced_basis_whitening()
 
         if mode == 'FD' and self.domain == 'RB':
             # Generate the waveform.
@@ -1164,12 +1194,12 @@ class WaveformDataset(object):
         # Relative whitening
 
         ref_psd_name = self.psd_names['ref']
-        ref_psd = np.array(self._get_psd(self.delta_f, 'ref'))
+        self.ref_psd = np.array(self._get_psd(self.delta_f, 'ref'))
 
         for ifo, psd_name in self.psd_names.items():
             psd = np.array(self._get_psd(self.delta_f, ifo))
 
-            self.basis.init_whitening(ref_psd_name, ref_psd, psd_name, psd)
+            self.basis.init_whitening(ref_psd_name, self.ref_psd, psd_name, psd)
 
         # Time translations
 
@@ -1272,7 +1302,7 @@ class WaveformDataset(object):
             self.basis.save(data_dir)
 
     def load(self, data_dir='.', data_fn='waveform_dataset.hdf5',
-             config_fn='settings.json'):
+             config_fn='settings.json', randpsd=None):
         """Load a database created with the save method.
 
         Keyword Arguments:
@@ -1320,7 +1350,7 @@ class WaveformDataset(object):
                 event_dir = d['event_dir']
                 if event_dir != 'None':
                     self.event_dir = Path(event_dir)
-                self.load_event(self.event_dir)
+                self.load_event(self.event_dir, randpsd=randpsd)
             except:
                 self.event = None
                 self.event_dir = None
@@ -1827,7 +1857,7 @@ class WaveformDataset(object):
     # Real data
     #
 
-    def load_event(self, event_dir):
+    def load_event(self, event_dir, randpsd=False):
 
         p = Path(event_dir)
         self.event_dir = p
@@ -1856,6 +1886,9 @@ class WaveformDataset(object):
         self.psd['ref'] = {}
         self.psd_names['ref'] = self.psd_names[detectors[0]]
 
+        if randpsd:
+            self.gpsd = Generate_PSD(event=self.event)
+            self.randpsd = True
     #
     # Methods for working with SNR threshold / changing distance prior
     #
