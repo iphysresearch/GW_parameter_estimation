@@ -8,7 +8,7 @@
 
 # Feel free to change the settings, but only the nde flow option will work at
 # present.
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0
 python -m lfigw.gwpe train new nde \
     --data_dir waveforms/GW150914/ \
     --model_dir models/GW150914/ \
@@ -17,8 +17,8 @@ python -m lfigw.gwpe train new nde \
     --nflows 15 \
     --batch_norm \
     --lr 0.0002 \
-    --batch_size 1024 \
-    --epochs 500 \
+    --batch_size 2048 \
+    --epochs 1 \
     --distance_prior_fn uniform_distance \
     --distance_prior 100.0 1000.0 \
     --hidden_dims 512 \
