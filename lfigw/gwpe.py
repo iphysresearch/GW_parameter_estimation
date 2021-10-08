@@ -40,7 +40,7 @@ class PosteriorModel(object):
 
         if use_cuda and torch.cuda.is_available():
             self.device = torch.device('cuda')
-            torch.set_default_tensor_type('torch.cuda.FloatTensor')
+            #torch.set_default_tensor_type('torch.cuda.FloatTensor')
         else:
             self.device = torch.device('cpu')
 
@@ -895,7 +895,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-
+    print(args)
     if args.mode == 'train':
 
         print('Waveform directory', args.data_dir)
