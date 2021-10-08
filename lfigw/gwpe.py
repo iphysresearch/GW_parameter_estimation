@@ -12,6 +12,7 @@ import corner
 import csv
 import time
 import numpy as np
+import pandas as pd
 import h5py
 
 from . import waveform_generator as wfg
@@ -19,6 +20,11 @@ from . import a_flows
 from . import nde_flows
 from . import cvae
 
+import sys
+sys.path.append('..')
+from model.utils import (ffname, js_divergence)
+from tqdm import tqdm
+torch.manual_seed(3407)
 
 class PosteriorModel(object):
 
@@ -38,11 +44,113 @@ class PosteriorModel(object):
         self.train_kl_history = []
         self.test_kl_history = []
 
+        self.epoch_minimum_test_loss = 0
+        self.nsamples_target_event = 2000
+
         if use_cuda and torch.cuda.is_available():
             self.device = torch.device('cuda')
             #torch.set_default_tensor_type('torch.cuda.FloatTensor')
         else:
             self.device = torch.device('cpu')
+
+    def load_all_bilby_samples(self):
+        self.all_bilby_samples = {}
+        print('Loading load_all_bilby_samples...')
+        for event in tqdm(['GW150914', 'GW151012',
+                           'GW151226', 'GW170608', 'GW170823',
+                           'GW170104',  # 'GW170817',
+                           'GW170818',
+                           'GW170809', 'GW170814', 'GW170729'][(
+                               -4 if len(self.detectors) == 3 else None):]):
+            self.all_bilby_samples[event] = self.load_a_bilby_samples(event)
+
+    def load_all_event_strain(self, truncate_basis):
+        self.all_event_strain = {}
+        print('Loading load_all_event_strain...')
+        for event in tqdm(['GW150914', 'GW151012',
+                           'GW151226', 'GW170608', 'GW170823',
+                           'GW170104',  # 'GW170817',
+                           'GW170818',
+                           'GW170809', 'GW170814', 'GW170729'][(
+                               -4 if len(self.detectors) == 3 else None):]):
+            self.all_event_strain[event] =\
+                self.load_a_event_strain(event, truncate_basis)
+
+    def load_a_event_strain(self, event, truncate_basis):
+        event_detectors_dict = {
+            'GW150914': ['H1', 'L1'],
+            'GW151012': ['H1', 'L1'],
+            'GW151226': ['H1', 'L1'],
+            'GW170104': ['H1', 'L1'],
+            'GW170608': ['H1', 'L1'],
+            'GW170729': ['H1', 'L1', 'V1'],
+            'GW170809': ['H1', 'L1', 'V1'],
+            'GW170814': ['H1', 'L1', 'V1'],
+            'GW170817': ['H1', 'L1', 'V1'],
+            'GW170818': ['H1', 'L1', 'V1'],
+            'GW170823': ['H1', 'L1']
+        }
+        # Load strain data for event
+        event_strain = {}
+        with h5py.File(Path('./data/events/{}'.format(event))
+                       / 'strain_FD_whitened.hdf5', 'r') as f:
+            event_strain = {det: f[det][:].astype(np.complex64)
+                            for det in event_detectors_dict[event][:2]}
+        # Load settings
+        WFD = wfg.WaveformDataset(sampling_from=self.wfd.sampling_from)
+        WFD.load_setting('./data/{}_sample_prior_basis'.format(event),
+                         sample_extrinsic_only=self.sample_extrinsic_only)
+
+        # 覆盖 basis
+        WFD.basis = SVDBasis()
+        WFD.basis.load('data/{}_sample_prior_basis/'.format(event))
+        WFD.Nrb = WFD.basis.n
+        WFD.basis.truncate(truncate_basis)
+        # Set up relative whitening
+        print('init relative whitening...')
+        WFD.init_relative_whitening()
+        WFD.initialize_reduced_basis_aux()
+        d_RB = {}
+        for ifo, di in event_strain.items():
+            h_RB = WFD.basis.fseries_to_basis_coefficients(di)
+            d_RB[ifo] = h_RB
+        WFD.parameters_mean = 0
+        WFD.parameters_std = 1
+        WFD.basis.standardization_dict = self.wfd.basis.standardization_dict
+        _, event_y = WFD.x_y_from_p_h(np.zeros(self.wfd.nparams),
+                                      d_RB, add_noise=False)
+        return event_y
+
+    @staticmethod
+    def load_a_bilby_samples(event):
+        event_gps_dict = {
+            'GW150914': 1126259462.4,
+            'GW151012': 1128678900.4,
+            'GW151226': 1135136350.6,
+            'GW170104': 1167559936.6,
+            'GW170608': 1180922494.5,
+            'GW170729': 1185389807.3,
+            'GW170809': 1186302519.8,
+            'GW170817': 1187008882.4,
+            'GW170814': 1186741861.5,
+            'GW170818': 1187058327.1,
+            'GW170823': 1187529256.5
+        }
+        event = event.split('_')[0]
+        # Load bilby samples
+        df = pd.read_csv('./downsampled_posterior_samples_v1.0.0/'
+                         '{}_downsampled_posterior_samples.dat'
+                         .format(event), sep=' ')
+        bilby_samples = df.dropna()[['mass_1', 'mass_2', 'phase',
+                                     'geocent_time', 'luminosity_distance',
+                                     'a_1', 'a_2', 'tilt_1', 'tilt_2',
+                                     'phi_12', 'phi_jl',
+                                     'theta_jn', 'psi',
+                                     'ra', 'dec']].values.astype('float64')
+
+        # Shift the time of coalescence by the trigger time
+        bilby_samples[:, 3] = bilby_samples[:, 3] - event_gps_dict[event]
+        return bilby_samples
 
     def load_dataset(self, batch_size=512, detectors=None,
                      truncate_basis=None, snr_threshold=None,
@@ -110,6 +218,11 @@ class PosteriorModel(object):
 
             if restandardize:
                 self.wfd.calculate_threshold_standardizations()
+
+        # 用于在训练的时候，与目标 event 的测试后验分布作对比
+        self.test_samples = {}
+        self.load_all_bilby_samples()
+        self.load_all_event_strain(truncate_basis)
 
         # pytorch wrappers
         wfd_train = wfg.WaveformDatasetTorch(self.wfd, train=True)
@@ -509,6 +622,104 @@ class PosteriorModel(object):
                             writer = csv.writer(f, delimiter='\t')
                             writer.writerow(
                                 [epoch, train_kl_loss, test_kl_loss])
+
+                    data_history = np.loadtxt(self.model_dir / 'loss_history.txt')
+                    # Plot loss
+                    plt.figure()
+                    plt.plot(data_history[:, 0],
+                            data_history[:, 1], '*--', label='train')
+                    plt.plot(data_history[:, 0],
+                            data_history[:, 2], '*--', label='test')
+                    self._plot_to('Loss', self.model_dir, 'loss_history.png')
+                    self.epoch_minimum_test_loss = int(data_history[
+                        np.argmin(data_history[:, 2]), 0])
+
+                # Plot JS
+                for event in tqdm(['GW150914', 'GW151012',
+                            'GW151226', 'GW170608', 'GW170823',
+                            'GW170104',  # 'GW170817',
+                            'GW170818',
+                            'GW170809', 'GW170814', 'GW170729'][(
+                                -4 if len(self.detectors) == 3 else None
+                            ):]):
+                    self.get_test_samples(event)
+                    self.save_js_history(p, epoch, event)
+                    self.plot_js_history(p, epoch, event)
+                # save best test model
+                if ((output_freq is not None) and (epoch == self.epoch_minimum_test_loss)):
+                    self._save_model(epoch)
+                    self.save_test_samples(p)
+
+    def save_test_samples(self, p):
+        print('Save best test samples ...')
+        for event in tqdm(['GW150914', 'GW151012',
+                           'GW151226', 'GW170608', 'GW170823',
+                           'GW170104',  # 'GW170817',
+                           'GW170818',
+                           'GW170809', 'GW170814', 'GW170729'][(
+                               -4 if len(self.detectors) == 3 else None):]):
+            np.save(p / 'test_best_event_samples'),
+                    self.test_samples)
+
+    def get_test_samples(self, event):
+        # for nflow only
+        # print(self.all_event_strain[event].shape) # (400,)
+        x_samples = nde_flows.obtain_samples(self.model,
+                                             self.all_event_strain[event],
+                                             self.nsamples_target_event,
+                                             self.device)
+        x_samples = x_samples.cpu()
+        # Rescale parameters.
+        # The neural network preferred mean zero and variance one.
+        # This undoes that scaling.
+        self.test_samples = self.wfd.post_process_parameters(x_samples.numpy())
+
+    def save_js_history(self, p, epoch, event):
+        # Make column headers if this is the first epoch
+        if epoch == 1:
+            with open(p / ('js_{}_history.txt'.format(event)), 'w') as f:
+                writer = csv.writer(f, delimiter='\t')
+                writer.writerow(list(self.wfd.param_idx.keys()))
+
+        with open(p / ('js_{}_history.txt'.format(event)), 'a') as f:
+            writer = csv.writer(f, delimiter='\t')
+            writer.writerow(js_divergence(
+                [self.test_samples[:, index],
+                 self.all_bilby_samples[event][:, index]])
+                for name, index in self.wfd.param_idx.items())
+
+    def plot_js_history(self, p, epoch, event):
+        # Plot
+        if epoch <= 1:
+            return
+        plt.figure()
+        jsdf = pd.read_csv(p / ('js_{}_history.txt'.format(event)), sep='\t')
+        plt.fill_between(range(len(jsdf)),
+                            jsdf.mean(axis=1),
+                            jsdf.max(axis=1), alpha=0.6, label=event)
+        self._extracted_from_plot_kljs_history_121('JS div.', p,
+                                                   'js_history.png')
+
+    def _extracted_from_plot_kljs_history_121(self, arg0, p, arg2):
+        plt.xlabel('Epoch')
+        plt.ylabel(arg0)
+        plt.legend()
+        plt.savefig(p / arg2)
+        plt.close()
+
+    @staticmethod
+    def _plot_to(ylabel, p, filename):
+        plt.xlabel('Epoch')
+        plt.ylabel(ylabel)
+        plt.legend()
+        plt.savefig(p / filename)
+        plt.close()
+
+    def _save_model(self, epoch):
+        for f in ffname(self.model_dir, f'e*_{self.save_model_name}'):
+            os.remove(self.model_dir / f)
+        print(f'Saving model as e{epoch}_{self.save_model_name}\n')
+        self.save_model(filename=f'e{epoch}_{self.save_model_name}')
 
     def init_waveform_supp(self, aux_filename='waveforms_supplementary.hdf5'):
 
