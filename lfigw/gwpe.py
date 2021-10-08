@@ -24,6 +24,7 @@ import sys
 sys.path.append('..')
 from model.utils import (ffname, js_divergence)
 from tqdm import tqdm
+from .reduced_basis import SVDBasis
 torch.manual_seed(3407)
 
 class PosteriorModel(object):
@@ -98,8 +99,7 @@ class PosteriorModel(object):
                             for det in event_detectors_dict[event][:2]}
         # Load settings
         WFD = wfg.WaveformDataset()
-        WFD.load_setting('./data/{}_sample_prior_basis'.format(event),
-                         sample_extrinsic_only=self.sample_extrinsic_only)
+        WFD.load_setting('./data/{}_sample_prior_basis'.format(event))
 
         # 覆盖 basis
         WFD.basis = SVDBasis()

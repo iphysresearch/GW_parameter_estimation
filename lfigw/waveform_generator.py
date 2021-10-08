@@ -1301,11 +1301,9 @@ class WaveformDataset(object):
         if self.domain == 'RB':
             self.basis.save(data_dir)
 
-    def load_setting(self, data_dir='.', config_fn='settings.json', sample_extrinsic_only = True):
+    def load_setting(self, data_dir='.', config_fn='settings.json'):
 
-        self.sample_extrinsic_only = sample_extrinsic_only
         p = Path(data_dir)
-
         # Load configuration
 
         with open(p / config_fn, 'r') as f_config:
