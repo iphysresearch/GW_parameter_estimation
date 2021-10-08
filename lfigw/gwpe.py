@@ -47,6 +47,7 @@ class PosteriorModel(object):
 
         self.epoch_minimum_test_loss = 0
         self.nsamples_target_event = 2000
+        self.all_test_samples = {}
 
         if use_cuda and torch.cuda.is_available():
             self.device = torch.device('cuda')
@@ -623,18 +624,19 @@ class PosteriorModel(object):
                             writer.writerow(
                                 [epoch, train_kl_loss, test_kl_loss])
 
-                    data_history = np.loadtxt(self.model_dir / 'loss_history.txt')
+                    data_history = np.loadtxt(p / 'history.txt')
                     # Plot loss
                     plt.figure()
                     plt.plot(data_history[:, 0],
                             data_history[:, 1], '*--', label='train')
                     plt.plot(data_history[:, 0],
                             data_history[:, 2], '*--', label='test')
-                    self._plot_to('Loss', self.model_dir, 'loss_history.png')
+                    self._plot_to('Loss', p, 'loss_history.png')
                     self.epoch_minimum_test_loss = int(data_history[
                         np.argmin(data_history[:, 2]), 0])
 
                 # Plot JS
+                print('Get/Save/Plot test samples and JS history...')
                 for event in tqdm(['GW150914', 'GW151012',
                             'GW151226', 'GW170608', 'GW170823',
                             'GW170104',  # 'GW170817',
@@ -643,11 +645,12 @@ class PosteriorModel(object):
                                 -4 if len(self.detectors) == 3 else None
                             ):]):
                     self.get_test_samples(event)
+                    self.all_test_samples[event] = self.test_samples
                     self.save_js_history(p, epoch, event)
                     self.plot_js_history(p, epoch, event)
                 # save best test model
                 if ((output_freq is not None) and (epoch == self.epoch_minimum_test_loss)):
-                    self._save_model(epoch)
+                    self._save_model(p, epoch)
                     self.save_test_samples(p)
 
     def save_test_samples(self, p):
@@ -658,7 +661,7 @@ class PosteriorModel(object):
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
                                -4 if len(self.detectors) == 3 else None):]):
-            np.save(p / 'test_best_event_samples' ,self.test_samples)
+            np.save(p / f'{event}_test_best_event_samples', self.all_test_samples[event])
 
     def get_test_samples(self, event):
         # for nflow only
@@ -714,11 +717,11 @@ class PosteriorModel(object):
         plt.savefig(p / filename)
         plt.close()
 
-    def _save_model(self, epoch):
-        for f in ffname(self.model_dir, f'e*_{self.save_model_name}'):
-            os.remove(self.model_dir / f)
-        print(f'Saving model as e{epoch}_{self.save_model_name}\n')
-        self.save_model(filename=f'e{epoch}_{self.save_model_name}')
+    def _save_model(self, p, epoch, save_model_name='model.pt'):
+        for f in ffname(p, f'e*_{save_model_name}'):
+            os.remove(p / f)
+        print(f'Saving model as e{epoch}_{save_model_name}\n')
+        self.save_model(filename=f'e{epoch}_{save_model_name}')
 
     def init_waveform_supp(self, aux_filename='waveforms_supplementary.hdf5'):
 

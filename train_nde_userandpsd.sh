@@ -8,14 +8,15 @@
 
 # Feel free to change the settings, but only the nde flow option will work at
 # present.
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1
 python -m lfigw.gwpe train new nde \
     --data_dir waveforms/GW150914/ \
-    --model_dir models/GW150914/ \
+    --model_dir models/GW150914_userandpsd/ \
     --nbins 8 \
     --num_transform_blocks 10 \
     --nflows 15 \
     --batch_norm \
+    --use_randpsd \
     --lr 0.0002 \
     --batch_size 2048 \
     --epochs 100000 \
