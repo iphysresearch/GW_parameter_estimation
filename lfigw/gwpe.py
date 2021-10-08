@@ -61,7 +61,7 @@ class PosteriorModel(object):
 
         # Load waveforms, already split into train and test sets
         self.wfd = wfg.WaveformDataset()
-        self.wfd.load(self.data_dir, randpsd)
+        self.wfd.load(self.data_dir, randpsd=randpsd)
         self.wfd.load_train(self.data_dir)
 
         # Set the detectors for training; useful if this is different from
