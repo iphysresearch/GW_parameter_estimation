@@ -54,7 +54,8 @@ class Generate_PSD:
         addr = address / 'events_hdf5' / f'{event}'
         self.data_psd = {}
         for det in self.detectors:
-            data = TimeSeries.read(addr / ffname(addr, f'*{det}*hdf5')[0])
+            print(addr / ffname(addr, f'*{det}*hdf5')[0])
+            data = TimeSeries.read(addr / ffname(addr, f'*{det}*hdf5')[0], format='hdf5')
             assert (self.t_event > data.times.value[0]) and (self.t_event < data.times.value[-1])
 
             if (self.t_event > data[self.numTpsd:].times.value[0]) and (self.t_event < data.times.value[-1]):

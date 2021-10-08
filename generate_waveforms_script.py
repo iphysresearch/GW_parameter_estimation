@@ -6,7 +6,7 @@ wfd = wfg.WaveformDataset(spins_aligned=False, domain='RB',
 wfd.Nrb = 600
 wfd.approximant = 'IMRPhenomPv2'
 
-wfd.load_event('data/events/GW150914/', randpsd=True)
+wfd.load_event('data/events/GW150914/', randpsd=False)
 
 wfd.importance_sampling = 'uniform_distance'
 
@@ -30,8 +30,8 @@ wfd.generate_dataset(1000000)
 
 wfd.generate_noisy_test_data(5000)
 
-wfd.save('waveforms/GW150914_randpsd')
-wfd.save_train('waveforms/GW150914_randpsd')
-wfd.save_noisy_test_data('waveforms/GW150914_randpsd')
+wfd.save('waveforms/GW150914')
+wfd.save_train('waveforms/GW150914')
+wfd.save_noisy_test_data('waveforms/GW150914')
 
 print('Program complete. Waveform dataset has been saved.')
