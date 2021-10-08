@@ -10,8 +10,8 @@
 # present.
 
 python -m lfigw.gwpe train new nde \
-    --data_dir waveforms/GW150914/ \
-    --model_dir models/GW150914/ \
+    --data_dir waveforms/GW150914_randpsd/ \
+    --model_dir models/GW150914_randpsd/ \
     --nbins 8 \
     --num_transform_blocks 10 \
     --nflows 15 \

@@ -24,14 +24,14 @@ print('delta_f', wfd.delta_f)
 print('T', wfd.time_duration)
 print('reference time', wfd.ref_time)
 
-wfd.generate_reduced_basis(50000//100)
+wfd.generate_reduced_basis(50000)
 
-wfd.generate_dataset(1000000//10000)
+wfd.generate_dataset(1000000)
 
-wfd.generate_noisy_test_data(5000//1000)
+wfd.generate_noisy_test_data(5000)
 
-# wfd.save('waveforms/GW150914_randpsd')
-# wfd.save_train('waveforms/GW150914_randpsd')
-# wfd.save_noisy_test_data('waveforms/GW150914_randpsd')
+wfd.save('waveforms/GW150914_randpsd')
+wfd.save_train('waveforms/GW150914_randpsd')
+wfd.save_noisy_test_data('waveforms/GW150914_randpsd')
 
 print('Program complete. Waveform dataset has been saved.')

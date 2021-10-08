@@ -563,7 +563,7 @@ class WaveformDataset(object):
                                         delta_f, self.f_min_psd)
         elif self.randpsd:
             psd = self.gpsd.pycbc_psd_from_random(ifo, psd_length, delta_f, self.f_min_psd)
-            print(f'rand psd! {ifo}')
+            # print(f'rand psd! {ifo}')
         else:
             psd = pycbc.psd.from_txt(self.event_dir
                                      / (self.psd_names[ifo] + '.txt'),
