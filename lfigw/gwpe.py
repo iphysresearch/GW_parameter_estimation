@@ -97,7 +97,7 @@ class PosteriorModel(object):
             event_strain = {det: f[det][:].astype(np.complex64)
                             for det in event_detectors_dict[event][:2]}
         # Load settings
-        WFD = wfg.WaveformDataset(sampling_from=self.wfd.sampling_from)
+        WFD = wfg.WaveformDataset()
         WFD.load_setting('./data/{}_sample_prior_basis'.format(event),
                          sample_extrinsic_only=self.sample_extrinsic_only)
 
@@ -658,8 +658,7 @@ class PosteriorModel(object):
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
                                -4 if len(self.detectors) == 3 else None):]):
-            np.save(p / 'test_best_event_samples'),
-                    self.test_samples)
+            np.save(p / 'test_best_event_samples' ,self.test_samples)
 
     def get_test_samples(self, event):
         # for nflow only
