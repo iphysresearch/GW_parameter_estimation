@@ -1,0 +1,2 @@
+mass_1	mass_2	phase	time	distance	a_1	a_2	tilt_1	tilt_2	phi_12	phi_jl	theta_jn	psi	ra	dec
+0.49903	0.49562	0.04684	0.914	0.3848	0.04965	0.04527	0.05024	0.03141	0.04657	0.20211	0.44289	0.04341	1.91055	0.74022
