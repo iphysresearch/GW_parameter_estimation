@@ -16,7 +16,7 @@ from inference.nde_flows import obtain_samples
 from inference.reduced_basis import SVDBasis
 #  from gwpy.frequencyseries import FrequencySeries
 from inference.transformer import TransformerEncoder
-
+from nflows.utils import get_num_parameters
 
 event_gps_dict = {
      'GW150914': 1126259462.4,
@@ -115,7 +115,7 @@ pm = PosteriorModel(model_dir=model_dir,
                     sample_extrinsic_only=False,
                     save_aux_filename=save_aux_filename,
                     save_model_name=save_model_name,
-                    use_cuda=False)
+                    use_cuda=True)
 pm.transformer = False
 pm.load_model(pm.save_model_name)
 pm.wfd = wfg.WaveformDataset()
@@ -145,15 +145,15 @@ for ifo, di in event_strain.items():
 _, pm.event_y = pm.wfd.x_y_from_p_h(np.zeros(pm.wfd.nparams), d_RB, add_noise=False)
 
 transformer = False
-# transformer = True
+#transformer = True
 if transformer:
     print('using transformer!')
     truncate_basis = 100
-    ffn_num_hiddens_transformer = 64
-    num_heads_transformer = 2
-    num_layers_transformer = 2
+    ffn_num_hiddens_transformer = 2048
+    num_heads_transformer = 4
+    num_layers_transformer = 256
     dropout_transformer = 0.1
-    batch_size = 512
+    batch_size = 1024
 
     norm_shape = [4, truncate_basis]
     transformer = {
@@ -175,14 +175,22 @@ if transformer:
     transformer['encoder'].to(torch.device(pm.device))
     transformer['encoder'].eval()
     transformer['valid_lens'] = torch.tensor([norm_shape[1], ]*batch_size).to(torch.device(pm.device), non_blocking=True)
+    print('Transformer:', get_num_parameters(transformer['encoder']))
 
+print('model:', get_num_parameters(pm.model))
+input('Continue?')
+save_dict = {}
 nsamples_target_event = 50000
-for nsamples_target_event in [100, 200, 500, 1000, 5000, 10000, 50000]:
-    print('Number of samples:', nsamples_target_event)
-    start_time = time.time()
-    x_samples = obtain_samples(pm.model, pm.event_y, nsamples_target_event, pm.device, transformer)
-    print(f'obtain_samples: {time.time() - start_time:.4f}')
-    x_samples = x_samples.cpu()
-    # Rescale parameters. The neural network preferred mean zero and variance one. This undoes that scaling.
-    test_samples = pm.wfd.post_process_parameters(x_samples.numpy())
-    break
+for nsamples_target_event in [50, 100, 200, 500, 1000, 5000, 10000, 20000, 50000, 100000]:
+    save_dict[nsamples_target_event] = []
+    for _ in range(20):
+        print('Number of samples:', nsamples_target_event)
+        start_time = time.time()
+        x_samples = obtain_samples(pm.model, pm.event_y, nsamples_target_event, pm.device, transformer, 1024)
+        print(f'obtain_samples {nsamples_target_event}: {time.time() - start_time:.4f}')
+        x_samples = x_samples.cpu()
+        # Rescale parameters. The neural network preferred mean zero and variance one. This undoes that scaling.
+        test_samples = pm.wfd.post_process_parameters(x_samples.numpy())
+        save_dict[nsamples_target_event].append(time.time() - start_time)
+#print(save_dict)
+np.save('prof_save_dict', save_dict)
