@@ -151,7 +151,7 @@ if transformer:
     truncate_basis = 100
     ffn_num_hiddens_transformer = 2048
     num_heads_transformer = 4
-    num_layers_transformer = 256
+    num_layers_transformer = 512
     dropout_transformer = 0.1
     batch_size = 1024
 
@@ -183,7 +183,7 @@ save_dict = {}
 nsamples_target_event = 50000
 for nsamples_target_event in [50, 100, 200, 500, 1000, 5000, 10000, 20000, 50000, 100000]:
     save_dict[nsamples_target_event] = []
-    for _ in range(20):
+    for _ in range(50):
         print('Number of samples:', nsamples_target_event)
         start_time = time.time()
         x_samples = obtain_samples(pm.model, pm.event_y, nsamples_target_event, pm.device, transformer, 1024)
@@ -194,3 +194,4 @@ for nsamples_target_event in [50, 100, 200, 500, 1000, 5000, 10000, 20000, 50000
         save_dict[nsamples_target_event].append(time.time() - start_time)
 #print(save_dict)
 np.save('prof_save_dict', save_dict)
+#np.save('prof_save_dict_512layertransformer', save_dict)
