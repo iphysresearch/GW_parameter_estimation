@@ -432,6 +432,7 @@ def obtain_samples(flow, y, nsamples, device=None, transformer=None, batch_size=
         num_leftover = nsamples % batch_size
 
         if transformer:
+            print('using transformer')
             valid_lens = torch.tensor([transformer['valid_lens'][1],]*1).to(device)
             transformer['encoder'].eval()
             y = transformer['encoder'](y.reshape(-1, 4, transformer['valid_lens'][1]), valid_lens).reshape(-1,4*transformer['valid_lens'][1])

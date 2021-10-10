@@ -157,8 +157,7 @@ class PosteriorModel(object):
         self.embedding_net.to(self.device)
 
         if optim.pretrain_embedding_dir is not None:
-            optim.pretrain_embedding_dir
-            checkpoint = torch.load(optim.pretrain_embedding_dir / ffname(optim.pretrain_embedding_dir, f'e*_{self.save_model_name}')[0],
+            checkpoint = torch.load(Path(optim.pretrain_embedding_dir) / ffname(optim.pretrain_embedding_dir, f'e*_{self.save_model_name}')[0],
                                     map_location=self.device)
             dd = checkpoint['embedding_net_state_dict']
             for key in list(dd.keys()):

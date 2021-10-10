@@ -25,7 +25,7 @@ print('T', wfd.time_duration)
 print('reference time', wfd.ref_time)
 
 wfd.generate_reduced_basis(50000)
-
+input('control + c!')
 wfd.generate_dataset(1000000)
 
 wfd.generate_noisy_test_data(5000)
