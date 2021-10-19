@@ -63,7 +63,7 @@ class PosteriorModel(object):
                            'GW170104',  # 'GW170817',
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
-                               -4 if len(self.detectors) == 3 else None):]):
+                               -4 if len(self.detectors) == 3 else None):1]):
             self.all_bilby_samples[event] = self.load_a_bilby_samples(event)
 
     def load_all_event_strain(self, truncate_basis):
@@ -74,7 +74,7 @@ class PosteriorModel(object):
                            'GW170104',  # 'GW170817',
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
-                               -4 if len(self.detectors) == 3 else None):]):
+                               -4 if len(self.detectors) == 3 else None):1]):
             self.all_event_strain[event] =\
                 self.load_a_event_strain(event, truncate_basis)
 
@@ -643,7 +643,7 @@ class PosteriorModel(object):
                             'GW170818',
                             'GW170809', 'GW170814', 'GW170729'][(
                                 -4 if len(self.detectors) == 3 else None
-                            ):]):
+                            ):1]):
                     self.get_test_samples(event)
                     self.all_test_samples[event] = self.test_samples
                     self.save_js_history(p, epoch, event)
@@ -660,7 +660,7 @@ class PosteriorModel(object):
                            'GW170104',  # 'GW170817',
                            'GW170818',
                            'GW170809', 'GW170814', 'GW170729'][(
-                               -4 if len(self.detectors) == 3 else None):]):
+                               -4 if len(self.detectors) == 3 else None):1]):
             np.save(p / f'{event}_test_best_event_samples', self.all_test_samples[event])
 
     def get_test_samples(self, event):
