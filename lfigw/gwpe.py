@@ -78,7 +78,7 @@ class PosteriorModel(object):
             self.all_event_strain[event] =\
                 self.load_a_event_strain(event, truncate_basis)
 
-    def load_a_event_strain(self, event, truncate_basis):
+    def load_a_event_strain(self, event, truncate_basis, event_dir='./data'):
         event_detectors_dict = {
             'GW150914': ['H1', 'L1'],
             'GW151012': ['H1', 'L1'],
@@ -94,32 +94,49 @@ class PosteriorModel(object):
         }
         # Load strain data for event
         event_strain = {}
-        with h5py.File(Path('./data/events/{}'.format(event))
+        with h5py.File(Path(event_dir + '/events/{}'.format(event))
                        / 'strain_FD_whitened.hdf5', 'r') as f:
             event_strain = {det: f[det][:].astype(np.complex64)
                             for det in event_detectors_dict[event][:2]}
         # Load settings
         WFD = wfg.WaveformDataset()
         # WFD.load_setting('./data/{}_sample_prior_basis'.format(event))
-        WFD.load_setting(self.data_dir)
+        # WFD.load_setting(self.data_dir)
+        WFD.load_noisy_test_data(self.data_dir)
+
+        # if self.wfd.domain == 'RB':
+
+        #     # Truncate basis if necessary
+        #     Nrb = f.attrs['Nrb']
+        #     if Nrb != self.wfd.Nrb:
+        #         self.wfd.basis.truncate(Nrb)
+        #         self.wfd.Nrb = Nrb
+
+        #     std_group = f['RB_std']
+        #     for ifo in std_group.keys():
+        #         self.wfd.basis.standardization_dict[ifo] = std_group[ifo][:]
+
+        # WFD.parameters_mean = f['parameters_mean'][:]
+        # WFD.parameters_std = f['parameters_std'][:]
 
         # 覆盖 basis
-        WFD.basis = SVDBasis()
+        # WFD.basis = SVDBasis()
         # WFD.basis.load('data/{}_sample_prior_basis/'.format(event))
-        WFD.basis.load(self.data_dir)
-        WFD.Nrb = WFD.basis.n
+        # WFD.basis.load(self.data_dir)
+        # WFD.Nrb = WFD.basis.n
+        WFD.basis.standardization_dict = self.wfd.basis.standardization_dict
         WFD.basis.truncate(truncate_basis)
         # Set up relative whitening
-        print('init relative whitening...')
-        WFD.init_relative_whitening()
-        WFD.initialize_reduced_basis_aux()
+        # print('init relative whitening...')
+        # WFD.init_relative_whitening()
+        # WFD.initialize_reduced_basis_aux()
         d_RB = {}
         for ifo, di in event_strain.items():
             h_RB = WFD.basis.fseries_to_basis_coefficients(di)
             d_RB[ifo] = h_RB
-        WFD.parameters_mean = 0
-        WFD.parameters_std = 1
-        WFD.basis.standardization_dict = self.wfd.basis.standardization_dict
+        # WFD.parameters_mean = 0
+        # WFD.parameters_std = 1
+        # WFD.basis.standardization_dict = self.wfd.basis.standardization_dict
         _, event_y = WFD.x_y_from_p_h(np.zeros(self.wfd.nparams),
                                       d_RB, add_noise=False)
         return event_y
