@@ -100,11 +100,13 @@ class PosteriorModel(object):
                             for det in event_detectors_dict[event][:2]}
         # Load settings
         WFD = wfg.WaveformDataset()
-        WFD.load_setting('./data/{}_sample_prior_basis'.format(event))
+        # WFD.load_setting('./data/{}_sample_prior_basis'.format(event))
+        WFD.load_setting(self.data_dir)
 
         # 覆盖 basis
         WFD.basis = SVDBasis()
-        WFD.basis.load('data/{}_sample_prior_basis/'.format(event))
+        # WFD.basis.load('data/{}_sample_prior_basis/'.format(event))
+        WFD.basis.load(self.data_dir)
         WFD.Nrb = WFD.basis.n
         WFD.basis.truncate(truncate_basis)
         # Set up relative whitening
