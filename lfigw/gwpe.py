@@ -850,6 +850,7 @@ def parse_args():
     dir_parent_parser.add_argument('--use_randpsd', action='store_true',
                                    dest='randpsd')
     dir_parent_parser.add_argument('--randpsd_events', nargs='+')
+    dir_parent_parser.add_argument('--use_embedding_net', action='store_true')
 
     activation_parent_parser = argparse.ArgumentParser(add_help=None)
     activation_parent_parser.add_argument(
@@ -1178,7 +1179,8 @@ def main():
                         'tail_bound': args.tail_bound,
                         'apply_unconditional_transform': args.apply_unconditional_transform,
                         'base_transform_type': args.base_transform_type
-                    }
+                    },
+                    use_embedding_net=args.use_embedding_net,
                 )
 
             elif args.model_type == 'cvae':

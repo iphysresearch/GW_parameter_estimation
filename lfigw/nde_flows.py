@@ -171,7 +171,7 @@ def create_transform(num_flow_steps,
 
 
 def create_NDE_model(input_dim, context_dim, num_flow_steps,
-                     base_transform_kwargs):
+                     base_transform_kwargs, use_embedding_net=None):
     """Build NSF (neural spline flow) model. This uses the nsf module
     available at https://github.com/bayesiains/nsf.
 
@@ -192,9 +192,23 @@ def create_NDE_model(input_dim, context_dim, num_flow_steps,
     """
 
     distribution = distributions.StandardNormal((input_dim,))
-    transform = create_transform(
-        num_flow_steps, input_dim, context_dim, base_transform_kwargs)
-    flow = flows.Flow(transform, distribution)
+    if use_embedding_net:
+        transform = create_transform(
+            num_flow_steps, input_dim, 128, base_transform_kwargs)
+        from torch import nn
+        from nflows.nn.nets import ResidualNet
+        print('Using embedding_net!')
+        embedding_net = nn.Sequential(
+            ResidualNet(context_dim, 1024, 1024, num_blocks=2, activation=F.elu, use_batch_norm=True),
+            ResidualNet(1024, 512, 512, num_blocks=2, activation=F.elu, use_batch_norm=True),
+            ResidualNet(512, 256, 256, num_blocks=2, activation=F.elu, use_batch_norm=True),
+            ResidualNet(256, 128, 128, num_blocks=2, activation=F.elu, use_batch_norm=True),
+        )
+        flow = flows.Flow(transform, distribution, embedding_net)
+    else:
+        transform = create_transform(
+            num_flow_steps, input_dim, context_dim, base_transform_kwargs)
+        flow = flows.Flow(transform, distribution)
 
     # Store hyperparameters. This is for reconstructing model when loading from
     # saved file.
