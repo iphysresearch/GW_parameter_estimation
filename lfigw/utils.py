@@ -1,16 +1,20 @@
 import sys
 sys.path.append('..')
+import os
 from model.utils import ffname
 from scipy.signal import tukey
 import pycbc.psd
 import numpy as np
 import json
 from gwpy.timeseries import TimeSeries
+from pycbc.types.frequencyseries import load_frequencyseries
 from pathlib import Path
 
 
 class Generate_PSD:
-    def __init__(self, T=8, T_psd=1024, Tseg=4, roll_off=0.4, fs=4096, event='GW150914', address='./data'):
+    def __init__(self, T=8, T_psd=1024, Tseg=4, roll_off=0.4, fs=4096,
+                 delta_f=1.0/8, f_min_psd=20, f_max=4096/2.0, num=10,
+                 event='GW150914', address='./data'):
         alpha = 2 * roll_off / Tseg
         self.w = tukey(int(Tseg * fs), alpha)
         self.numT = T * fs
@@ -20,11 +24,49 @@ class Generate_PSD:
         self.seg_stride = int(Tseg * fs)
         self.randrange = T_psd-T
 
+        self.f_max = f_max
+        self.delta_f = delta_f
+        self.f_min_psd = f_min_psd
+
         self.detectors = None
         self.data_psd = None
         self.t_event = None
-        self.get_t_event(Path(address), event)
-        self.get_data_psd(Path(address), event)
+        self.psd_dict = {}
+
+        if isinstance(event, list):
+            print(f'Init {num} PSDs for multiple events...')
+            for e in event:
+                self.num = num
+                self.get_t_event(Path(address), e)
+                self.get_data_psd(Path(address), e)
+                self._init_hdfs(Path(address), e)
+        elif isinstance(event, str):
+            self.get_t_event(Path(address), event)
+            self.get_data_psd(Path(address), event)
+        else:
+            raise
+        total_dets_considered = list(
+            {key.split('_')[1] for key in self.psd_dict.keys()}
+        )
+
+        self.psd_det_filename = {det: [key for key in self.psd_dict.keys() if det in key] for det in total_dets_considered}
+
+    def _init_hdfs(self, address, event):
+        os.system(f'rm -rf {address / f"{event}_randpsds"}')
+        os.mkdir(f'{address / f"{event}_randpsds"}')
+        psd_length = int(self.f_max / self.delta_f) + 1
+        for ifo in self.detectors:
+            for i in range(self.num):
+                self.psd_dict[f'{event}_{ifo}_{i}'] = self.pycbc_psd_from_random(ifo, psd_length, self.delta_f, self.f_min_psd)
+                self.psd_dict[f'{event}_{ifo}_{i}'].save(str(address / f"{event}_randpsds" / f'{ifo}_{i}.hdf'))
+
+    def _load_hdfs(self, address, event):
+        for i in range(10):
+            for ifo in self.detectors:
+                self.psd_dict[f'{event}_{ifo}_{i}'] = load_frequencyseries(str(address / f"{event}_randpsds" / f'{ifo}_{i}.hdf'))
+
+    def load_psd_from_random(self, det):
+        return self.psd_dict[self.psd_det_filename[det][np.random.randint(self.num)]]
 
     def pycbc_psd_from_random(self, det, length, delta_f, low_freq_cutoff):
         if det == 'ref':
