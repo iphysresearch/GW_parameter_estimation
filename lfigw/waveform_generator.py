@@ -791,7 +791,7 @@ class WaveformDataset(object):
                 time_shift = time_d
                 h_d = h_d.cyclic_time_shift(time_shift)
                 h_d.start_time = h_d.start_time + time_shift
-
+                
                 # whiten
                 h_d = h_d / (self._get_psd(h_d.delta_f, ifo) ** 0.5)
 
@@ -1955,7 +1955,7 @@ class WaveformDataset(object):
         self.psd_names['ref'] = self.psd_names[detectors[0]]
 
         if randpsd:
-            self.gpsd = Generate_PSD(event=randpsd_events or self.event, num=10000)
+            self.gpsd = Generate_PSD(event=randpsd_events or self.event, num=2000)
             self.randpsd = True
     #
     # Methods for working with SNR threshold / changing distance prior
