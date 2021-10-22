@@ -13,7 +13,7 @@ from pathlib import Path
 
 class Generate_PSD:
     def __init__(self, T=8, T_psd=1024, Tseg=4, roll_off=0.4, fs=4096,
-                 delta_f=1.0/8, f_min_psd=20, f_max=4096/2.0, num=10,
+                 delta_f=1.0/8, f_min_psd=20, f_max=4096/4.0, num=10,
                  event='GW150914', address='./data'):
         alpha = 2 * roll_off / Tseg
         self.w = tukey(int(Tseg * fs), alpha)
