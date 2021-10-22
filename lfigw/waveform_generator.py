@@ -935,6 +935,8 @@ class WaveformDataset(object):
         self.ref_psd = np.array(self._get_psd(self.delta_f, 'ref'))
 
         for ifo, psd_name in self.psd_names.items():
+            if (psd_name != ref_psd_name):
+                continue
             psd = np.array(self._get_psd(self.delta_f, ifo))
 
             self.basis.init_whitening(ref_psd_name, self.ref_psd, psd_name, psd)
