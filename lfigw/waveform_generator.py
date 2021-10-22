@@ -562,7 +562,10 @@ class WaveformDataset(object):
             psd = pycbc.psd.from_string(self.psd_names[ifo], psd_length,
                                         delta_f, self.f_min_psd)
         elif self.randpsd:
-            psd = self.gpsd.pycbc_psd_from_random(ifo, psd_length, delta_f, self.f_min_psd)
+            if self.gpsd.psd_dict:
+                psd = self.gpsd.load_psd_from_random(ifo)
+            else:
+                psd = self.gpsd.pycbc_psd_from_random(ifo, psd_length, delta_f, self.f_min_psd)
             # print(f'rand psd! {ifo}')
         else:
             psd = pycbc.psd.from_txt(self.event_dir
@@ -935,6 +938,8 @@ class WaveformDataset(object):
         self.ref_psd = np.array(self._get_psd(self.delta_f, 'ref'))
 
         for ifo, psd_name in self.psd_names.items():
+            if (psd_name != ref_psd_name):
+                continue
             psd = np.array(self._get_psd(self.delta_f, ifo))
 
             self.basis.init_whitening(ref_psd_name, self.ref_psd, psd_name, psd)
@@ -1365,7 +1370,7 @@ class WaveformDataset(object):
                 self.init_relative_whitening()
 
     def load(self, data_dir='.', data_fn='waveform_dataset.hdf5',
-             config_fn='settings.json', randpsd=None):
+             config_fn='settings.json', randpsd=None, randpsd_events=None):
         """Load a database created with the save method.
 
         Keyword Arguments:
@@ -1413,7 +1418,7 @@ class WaveformDataset(object):
                 event_dir = d['event_dir']
                 if event_dir != 'None':
                     self.event_dir = Path(event_dir)
-                self.load_event(self.event_dir, randpsd=randpsd)
+                self.load_event(self.event_dir, randpsd=randpsd, randpsd_events=randpsd_events)
             except:
                 self.event = None
                 self.event_dir = None
@@ -1920,7 +1925,7 @@ class WaveformDataset(object):
     # Real data
     #
 
-    def load_event(self, event_dir, randpsd=False):
+    def load_event(self, event_dir, randpsd=False, randpsd_events=None):
 
         p = Path(event_dir)
         self.event_dir = p
@@ -1950,7 +1955,7 @@ class WaveformDataset(object):
         self.psd_names['ref'] = self.psd_names[detectors[0]]
 
         if randpsd:
-            self.gpsd = Generate_PSD(event=self.event)
+            self.gpsd = Generate_PSD(event=randpsd_events or self.event, num=10000)
             self.randpsd = True
     #
     # Methods for working with SNR threshold / changing distance prior

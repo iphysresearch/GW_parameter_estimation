@@ -176,7 +176,7 @@ class PosteriorModel(object):
     def load_dataset(self, batch_size=512, detectors=None,
                      truncate_basis=None, snr_threshold=None,
                      distance_prior_fn=None, distance_prior=None,
-                     bw_dstar=None, randpsd=None):
+                     bw_dstar=None, randpsd=None, randpsd_events=None):
         """Load database of waveforms and set up data loaders.
 
         Args:
@@ -190,7 +190,7 @@ class PosteriorModel(object):
 
         # Load waveforms, already split into train and test sets
         self.wfd = wfg.WaveformDataset()
-        self.wfd.load(self.data_dir, randpsd=randpsd)
+        self.wfd.load(self.data_dir, randpsd=randpsd, randpsd_events=randpsd_events)
         self.wfd.load_train(self.data_dir)
 
         # Set the detectors for training; useful if this is different from
@@ -849,6 +849,7 @@ def parse_args():
                                    dest='cuda')
     dir_parent_parser.add_argument('--use_randpsd', action='store_true',
                                    dest='randpsd')
+    dir_parent_parser.add_argument('--randpsd_events', nargs='+')
 
     activation_parent_parser = argparse.ArgumentParser(add_help=None)
     activation_parent_parser.add_argument(
@@ -1145,7 +1146,8 @@ def main():
                         distance_prior_fn=args.distance_prior_fn,
                         distance_prior=args.distance_prior,
                         bw_dstar=args.bw_dstar,
-                        randpsd=args.randpsd)
+                        randpsd=args.randpsd,
+                        randpsd_events=args.randpsd_events)
         print('Detectors:', pm.detectors)
 
         if args.model_source == 'new':
