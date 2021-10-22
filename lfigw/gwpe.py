@@ -145,7 +145,7 @@ class PosteriorModel(object):
     @staticmethod
     def load_a_bilby_samples(event):
         event_gps_dict = {
-            'GW150914': 1126259462.4,
+            'GW150914': 1126259462.391,#1126259462.4,
             'GW151012': 1128678900.4,
             'GW151226': 1135136350.6,
             'GW170104': 1167559936.6,
