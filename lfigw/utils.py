@@ -66,6 +66,8 @@ class Generate_PSD:
                 self.psd_dict[f'{event}_{ifo}_{i}'] = load_frequencyseries(str(address / f"{event}_randpsds" / f'{ifo}_{i}.hdf'))
 
     def load_psd_from_random(self, det):
+        if det == 'ref':
+            det = 'H1'
         return self.psd_dict[self.psd_det_filename[det][np.random.randint(self.num)]]
 
     def pycbc_psd_from_random(self, det, length, delta_f, low_freq_cutoff):
